@@ -234,6 +234,8 @@ section[data-testid="stSidebar"] * { color: #eef4f0; }
 .matrix-name { width:185px; font-weight:850; font-size:12px; color:#29352e; padding-top:5px; }
 .pill { border-radius:999px; padding:5px 9px; font-size:10px; font-weight:800; background:#f1f4f2; color:#435149; border:1px solid #e4e9e6; }
 .pill.on { background:var(--green-soft); color:var(--green-dark); border-color:#cfe8d7; }
+.pill.warn { background:var(--amber-soft); color:var(--amber); border-color:#f0d89d; }
+.pill.bad { background:var(--red-soft); color:var(--red); border-color:#efc8c4; }
 
 /* Status */
 .status { border-radius:13px; padding:9px 11px; font-size:10px; font-weight:900; display:inline-block; }
@@ -389,6 +391,34 @@ def num(value, dec=1):
 
 def percent(value):
     return f"{parse_num(value):.1f}%".replace(".", ",")
+
+
+def safe_sum(series):
+    """Somma robusta: gestisce numeri, stringhe, celle vuote e NaN."""
+    if series is None:
+        return 0.0
+    try:
+        return float(pd.Series(series).apply(parse_num).sum())
+    except Exception:
+        return 0.0
+
+
+def safe_value(value):
+    """Converte qualsiasi valore economico in float senza propagare errori."""
+    return parse_num(value)
+
+
+def margin_status(margin, margin_pct, has_data=True):
+    """Semaforo gestionale: OK / ATTENZIONE / CRITICO."""
+    m = safe_value(margin)
+    p = safe_value(margin_pct)
+    if not has_data:
+        return ("ATTENZIONE", "Nessun dato consuntivato", "warn")
+    if m < 0:
+        return ("CRITICO", "Margine negativo", "bad")
+    if p < 5:
+        return ("ATTENZIONE", "Margine molto contenuto", "warn")
+    return ("OK", "Margine sotto controllo", "ok")
 
 
 # ============================================================
@@ -908,18 +938,38 @@ if page == "Dashboard":
         unsafe_allow_html=True,
     )
 
-    revenue = df["Ricavi"].sum()
-    cost = df["Costo Totale"].sum()
-    margin = df["Margine"].sum()
-    margin_pct = margin / revenue * 100 if revenue else 0
-    labor_hours = personnel_detail["Ore"].sum() if not personnel_detail.empty else 0
-    vehicle_hours = vehicle_detail["Ore"].sum() if not vehicle_detail.empty else 0
+    revenue = safe_sum(df["Ricavi"] if "Ricavi" in df.columns else None)
+    cost = safe_sum(df["Costo Totale"] if "Costo Totale" in df.columns else None)
+    margin = safe_sum(df["Margine"] if "Margine" in df.columns else None)
+    margin_pct = (margin / revenue * 100) if revenue else 0.0
+
+    # Le ore nella Control Tower seguono gli stessi filtri della dashboard.
+    dashboard_personnel = authorized_services(personnel_detail)
+    dashboard_vehicles = authorized_services(vehicle_detail)
+    if service_filter != "Tutti":
+        dashboard_personnel = dashboard_personnel[dashboard_personnel["Servizio"].astype(str).eq(service_filter)].copy() if not dashboard_personnel.empty else dashboard_personnel
+        dashboard_vehicles = dashboard_vehicles[dashboard_vehicles["Servizio"].astype(str).eq(service_filter)].copy() if not dashboard_vehicles.empty else dashboard_vehicles
+    if sub_filter != "Tutti":
+        dashboard_personnel = dashboard_personnel[dashboard_personnel["Sottoservizio"].astype(str).eq(sub_filter)].copy() if not dashboard_personnel.empty else dashboard_personnel
+        dashboard_vehicles = dashboard_vehicles[dashboard_vehicles["Sottoservizio"].astype(str).eq(sub_filter)].copy() if not dashboard_vehicles.empty else dashboard_vehicles
+    if period != "Tutto":
+        date_start = start
+        if not dashboard_personnel.empty:
+            dashboard_personnel = dashboard_personnel[dashboard_personnel["Data"].isna() | (dashboard_personnel["Data"] >= date_start)].copy()
+        if not dashboard_vehicles.empty:
+            dashboard_vehicles = dashboard_vehicles[dashboard_vehicles["Data"].isna() | (dashboard_vehicles["Data"] >= date_start)].copy()
+
+    labor_hours = safe_sum(dashboard_personnel["Ore"] if not dashboard_personnel.empty and "Ore" in dashboard_personnel.columns else None)
+    vehicle_hours = safe_sum(dashboard_vehicles["Ore"] if not dashboard_vehicles.empty and "Ore" in dashboard_vehicles.columns else None)
+    margin = safe_value(margin)
+    margin_pct = safe_value(margin_pct)
 
     kcols = st.columns(6)
+    margin_card_class = "teal" if safe_value(margin) >= 0 else "red"
     cards = [
         (kcols[0], "Ricavi", euro(revenue), "fatturato", ""),
         (kcols[1], "Costo totale", euro(cost), "personale + mezzi + indiretti", "blue"),
-        (kcols[2], "Margine", euro(margin), percent(margin_pct), "teal" if margin >= 0 else "red"),
+        (kcols[2], "Margine", euro(margin), percent(margin_pct), margin_card_class),
         (kcols[3], "Margine %", percent(margin_pct), "sul ricavo", "purple"),
         (kcols[4], "Ore uomo", f"{num(labor_hours)} h", "da certificazione", "amber"),
         (kcols[5], "Ore mezzi", f"{num(vehicle_hours)} h", "da certificazione", ""),
@@ -952,13 +1002,13 @@ if page == "Dashboard":
     with right:
         st.markdown('<div class="panel"><div class="panel-title">Composizione costi</div><div class="panel-sub">Peso delle principali componenti</div></div>', unsafe_allow_html=True)
         cost_mix = pd.Series({
-            "Personale": df["Costo Personale"].sum(),
-            "Mezzi": df["Costo Mezzi"].sum(),
-            "Overhead": df["Overhead"].sum(),
+            "Personale": safe_sum(df["Costo Personale"] if "Costo Personale" in df.columns else None),
+            "Mezzi": safe_sum(df["Costo Mezzi"] if "Costo Mezzi" in df.columns else None),
+            "Overhead": safe_sum(df["Overhead"] if "Overhead" in df.columns else None),
         })
         st.bar_chart(cost_mix)
 
-    st.markdown('<div class="section-title">Stato dei servizi</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Semaforo operativo</div>', unsafe_allow_html=True)
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     for service_name, subs in SERVICE_TREE.items():
         visible = subs if is_admin() else [x for x in subs if x in st.session_state.allowed_subservices]
@@ -966,13 +1016,52 @@ if page == "Dashboard":
             continue
         pills = []
         for sub in visible:
-            d = df[df["Sottoservizio"].eq(sub)]
-            m = d["Margine"].sum() if not d.empty else 0
-            cls = "on" if m >= 0 and not d.empty else ""
-            label = f"{sub} · {euro(m)}" if not d.empty else f"{sub} · nessun dato"
-            pills.append(f'<span class="pill {cls}">{label}</span>')
-        st.markdown(f'<div class="matrix-row"><div class="matrix-name">{service_name}</div>{"".join(pills)}</div>', unsafe_allow_html=True)
+            d = df[df["Sottoservizio"].eq(sub)].copy()
+            m = safe_sum(d["Margine"] if not d.empty else None)
+            r = safe_sum(d["Ricavi"] if not d.empty else None)
+            p = (m / r * 100) if r else 0.0
+            status_label, status_text, status_class = margin_status(m, p, not d.empty)
+            icon = {"ok": "●", "warn": "▲", "bad": "■"}.get(status_class, "●")
+            if d.empty:
+                label = f"{icon} {sub} · nessun dato"
+            else:
+                label = f"{icon} {sub} · {euro(m)} · {percent(p)}"
+            pill_class = "on" if status_class == "ok" else status_class
+            pills.append(f'<span class="pill {pill_class}">{label}</span>')
+        st.markdown(
+            f'<div class="matrix-row"><div class="matrix-name">{service_name}</div>{"".join(pills)}</div>',
+            unsafe_allow_html=True,
+        )
     st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="section-title">Control Tower</div>', unsafe_allow_html=True)
+    total_hours = safe_value(labor_hours) + safe_value(vehicle_hours)
+    cost_per_hour = cost / total_hours if total_hours else 0.0
+    tonnes = safe_sum(df["Tonnellate"] if "Tonnellate" in df.columns else None)
+    cost_per_ton = cost / tonnes if tonnes else 0.0
+    status_label, status_text, status_class = margin_status(margin, margin_pct, not df.empty)
+
+    t1, t2, t3, t4 = st.columns(4)
+    with t1:
+        st.markdown(
+            f'<div class="panel"><div class="panel-title">Stato economico</div><div class="panel-sub">Indicatore automatico</div><div style="margin-top:14px"><span class="status {status_class}">{status_label}</span></div><div style="font-size:12px;color:#67736c;margin-top:10px">{status_text}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with t2:
+        st.markdown(
+            f'<div class="panel"><div class="panel-title">Ore certificate</div><div class="panel-sub">Personale + mezzi</div><div class="kpi-value" style="font-size:25px;margin-top:12px">{num(total_hours)} h</div><div class="kpi-note">Uomo {num(labor_hours)} h · Mezzi {num(vehicle_hours)} h</div></div>',
+            unsafe_allow_html=True,
+        )
+    with t3:
+        st.markdown(
+            f'<div class="panel"><div class="panel-title">Costo / ora</div><div class="panel-sub">Totale / ore certificate</div><div class="kpi-value" style="font-size:25px;margin-top:12px">{euro(cost_per_hour)}</div><div class="kpi-note">Indicatore operativo</div></div>',
+            unsafe_allow_html=True,
+        )
+    with t4:
+        st.markdown(
+            f'<div class="panel"><div class="panel-title">Costo / tonnellata</div><div class="panel-sub">Quando è presente il tonnellaggio</div><div class="kpi-value" style="font-size:25px;margin-top:12px">{euro(cost_per_ton)}</div><div class="kpi-note">Tonnellate: {num(tonnes, 1)}</div></div>',
+            unsafe_allow_html=True,
+        )
 
     st.markdown('<div class="section-title">Flusso operativo</div>', unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
@@ -1010,7 +1099,7 @@ elif page == "Certificazioni":
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.metric("File", st.session_state.cert_file or "-")
         with c2: st.metric("Righe", len(cert))
-        with c3: st.metric("Ore", f"{num(cert['Ore'].sum())} h")
+        with c3: st.metric("Ore", f"{num(safe_sum(cert['Ore']))} h")
         with c4: st.metric("Righe mezzi", int((cert["Risorsa"] == "Mezzo").sum()))
 
         st.markdown('<div class="section-title">Anteprima riconoscimento</div>', unsafe_allow_html=True)
@@ -1146,8 +1235,8 @@ elif page == "Consuntivazione":
     if zero_rates:
         st.warning("Costo orario non configurato per: " + ", ".join(sorted(set(zero_rates))) + ". Configuralo in Tariffari & Contratti.")
 
-    labor_hours = person_calc["Ore"].apply(parse_hours).sum()
-    labor_cost = person_calc["Costo Totale"].sum()
+    labor_hours = safe_sum(person_calc["Ore"].apply(parse_hours))
+    labor_cost = safe_sum(person_calc["Costo Totale"])
 
     # --------------------------------------------------------
     # MEZZI
@@ -1196,19 +1285,22 @@ elif page == "Consuntivazione":
     if vehicle_zero_rates:
         st.warning("Costo mezzo non configurato per: " + ", ".join(sorted(set(vehicle_zero_rates))))
 
-    vehicle_hours = vehicle_calc["Ore"].apply(parse_hours).sum()
-    vehicle_cost = vehicle_calc["Costo Totale"].sum()
+    vehicle_hours = safe_sum(vehicle_calc["Ore"].apply(parse_hours))
+    vehicle_cost = safe_sum(vehicle_calc["Costo Totale"])
 
     # --------------------------------------------------------
     # ECONOMIA
     # --------------------------------------------------------
     st.markdown('<div class="section-title">Step 5 · Risultato economico</div>', unsafe_allow_html=True)
 
-    overhead_pct = general_rate(tariffs, "Overhead", 15.0)
+    overhead_pct = safe_value(general_rate(tariffs, "Overhead", 15.0))
+    labor_cost = safe_value(labor_cost)
+    vehicle_cost = safe_value(vehicle_cost)
+    revenue = safe_value(revenue)
     overhead = (labor_cost + vehicle_cost) * overhead_pct / 100
     total_cost = labor_cost + vehicle_cost + overhead
     margin = revenue - total_cost
-    margin_pct = margin / revenue * 100 if revenue else 0
+    margin_pct = (margin / revenue * 100) if revenue else 0.0
 
     k1, k2, k3, k4, k5 = st.columns(5)
     result_cards = [
@@ -1216,7 +1308,7 @@ elif page == "Consuntivazione":
         (k2, "Mezzi", euro(vehicle_cost), "blue"),
         (k3, "Overhead", euro(overhead), "amber"),
         (k4, "Costo totale", euro(total_cost), "purple"),
-        (k5, "Margine", euro(margin), "" if margin >= 0 else "red"),
+        (k5, "Margine", euro(margin), "" if safe_value(margin) >= 0 else "red"),
     ]
     for col, label, value, cls in result_cards:
         with col:
@@ -1299,6 +1391,8 @@ elif page == "Economico":
             Margine=("Margine", "sum"),
             Tonnellate=("Tonnellate", "sum"),
         ).reset_index()
+        for c in ["Ricavi", "Costi", "Margine", "Tonnellate"]:
+            summary[c] = summary[c].apply(parse_num)
         summary["Margine %"] = np.where(summary["Ricavi"] != 0, summary["Margine"] / summary["Ricavi"] * 100, 0)
 
         display = summary.copy()
