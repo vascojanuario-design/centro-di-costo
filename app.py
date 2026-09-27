@@ -226,6 +226,120 @@ section[data-testid="stSidebar"] [role="radiogroup"] label:hover {
 }
 
 /* ===========================
+   SIDEBAR MODERNA
+   =========================== */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #fbfdfc 0%, #f1f6f3 100%) !important;
+    border-right: 1px solid #d8e2dc !important;
+    box-shadow: 6px 0 24px rgba(27, 52, 39, 0.05);
+}
+
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+    gap: 0.45rem;
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] {
+    gap: 6px !important;
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] label {
+    position: relative;
+    min-height: 42px;
+    display: flex !important;
+    align-items: center;
+    border-radius: 12px !important;
+    padding: 5px 12px !important;
+    margin: 0 !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    transition: all .16s ease;
+    cursor: pointer;
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] label > div:first-child {
+    display: none !important;
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] label > div:last-child {
+    width: 100%;
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] label p {
+    color: #33433b !important;
+    font-weight: 800 !important;
+    font-size: 12px !important;
+    letter-spacing: -.05px;
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] label:hover {
+    background: #eaf3ed !important;
+    border-color: #d4e6da !important;
+    transform: translateX(2px);
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+    background: #dff1e6 !important;
+    border-color: #b9dcc6 !important;
+    box-shadow: 0 5px 14px rgba(8, 122, 61, .08);
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked)::before {
+    content: "";
+    width: 4px;
+    height: 22px;
+    border-radius: 999px;
+    background: #087a3d;
+    position: absolute;
+    left: -1px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p {
+    color: #055f2f !important;
+    font-weight: 900 !important;
+}
+
+section[data-testid="stSidebar"] .stButton > button {
+    border-radius: 12px !important;
+    min-height: 40px !important;
+    background: #ffffff !important;
+    color: #324139 !important;
+    border: 1px solid #d6e1da !important;
+    box-shadow: 0 2px 8px rgba(27, 52, 39, .04);
+    font-weight: 850 !important;
+    transition: all .16s ease;
+}
+
+section[data-testid="stSidebar"] .stButton > button:hover {
+    border-color: #9fc8ad !important;
+    color: #055f2f !important;
+    background: #f3faf5 !important;
+    transform: translateY(-1px);
+}
+
+.sidebar-user-card {
+    background: #ffffff;
+    border: 1px solid #d9e4dd;
+    border-radius: 14px;
+    padding: 12px;
+    box-shadow: 0 4px 15px rgba(27, 52, 39, .045);
+    margin-top: 8px;
+}
+
+.sidebar-user-name {
+    color: #1c2b24 !important;
+    font-size: 12px;
+    font-weight: 900;
+}
+
+.sidebar-user-meta {
+    color: #66756d !important;
+    font-size: 10px;
+    margin-top: 3px;
+}
+
+/* ===========================
    TOPBAR
    =========================== */
 .topbar {
@@ -625,6 +739,45 @@ div[data-testid="stDataEditor"],
 /* Alert box leggibili */
 [data-testid="stAlert"] {
     border-radius: 12px;
+}
+
+/* ===========================
+   CONTRAST FIX GLOBALE
+   =========================== */
+
+.stCaption, [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
+    color: #68766e !important;
+}
+
+[data-testid="stExpander"] {
+    background: #ffffff !important;
+    border: 1px solid #d8e3dc !important;
+    border-radius: 14px !important;
+}
+
+[data-testid="stExpander"] summary p,
+[data-testid="stExpander"] summary span {
+    color: #1c2b24 !important;
+    font-weight: 850 !important;
+}
+
+[data-testid="stDataFrame"] div,
+[data-testid="stDataEditor"] div {
+    color: #1c2b24 !important;
+}
+
+[data-testid="stFileUploader"] section {
+    background: #ffffff !important;
+    border: 1px dashed #b9cbbf !important;
+    border-radius: 14px !important;
+}
+
+[data-testid="stFileUploader"] section * {
+    color: #33433b !important;
+}
+
+[data-testid="stProgress"] div {
+    background-color: #087a3d !important;
 }
 
 /* Footer */
@@ -1209,17 +1362,34 @@ with st.sidebar:
     pages = ["Dashboard", "Consuntivazione", "Certificazioni", "Economico"]
     if is_admin():
         pages += ["Anagrafiche", "Tariffari & Contratti", "Accessi"]
-    page = st.radio("Menu", pages, label_visibility="collapsed")
+    NAV_LABELS = {
+        "Dashboard": "◈  Dashboard",
+        "Consuntivazione": "＋  Consuntivazione",
+        "Certificazioni": "✓  Certificazioni",
+        "Economico": "€  Economico",
+        "Anagrafiche": "♟  Anagrafiche",
+        "Tariffari & Contratti": "▤  Tariffari & Contratti",
+        "Accessi": "◎  Accessi",
+    }
+    nav_options = [NAV_LABELS.get(p, p) for p in pages]
+    selected_nav = st.radio("Menu", nav_options, label_visibility="collapsed")
+    page = next((p for p in pages if NAV_LABELS.get(p, p) == selected_nav), selected_nav)
 
     st.markdown("---")
-    st.caption(f"● {st.session_state.nome}")
-    st.caption(f"Ruolo · {st.session_state.ruolo}")
-    if is_admin():
-        st.caption("Accesso · Direzione")
-    else:
-        st.caption(f"Sottoservizi · {len(st.session_state.allowed_subservices)}")
+    access_meta = "Accesso · Direzione" if is_admin() else f"Sottoservizi · {len(st.session_state.allowed_subservices)}"
+    st.markdown(
+        f"""
+        <div class="sidebar-user-card">
+            <div class="sidebar-user-name">● {st.session_state.nome}</div>
+            <div class="sidebar-user-meta">Ruolo · {st.session_state.ruolo}</div>
+            <div class="sidebar-user-meta">{access_meta}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
 
-    if st.button("Esci", use_container_width=True):
+    if st.button("↪  Esci", use_container_width=True):
         for key in ["logged", "username", "nome", "ruolo", "autorizzazioni", "allowed_subservices"]:
             st.session_state.pop(key, None)
         st.rerun()
