@@ -1,0 +1,4 @@
+Username,Password,Ruolo,Cantieri
+direzione,admin,admin,TUTTI
+resp_prato,123,capocantiere,"RACCOLTA PAP PRATO, Spazzamento Stradale"
+resp_mantova,456,capocantiere,"RACCOLTA PAP MANTOVA, Movimentazione Scarrabili"
