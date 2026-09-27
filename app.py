@@ -8,10 +8,9 @@ import pandas as pd
 import streamlit as st
 
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V5.2
-# Dashboard premium / Servizio -> Sottoservizio -> Certificazione
-# Personale -> Contratto -> Livello -> Costo orario
-# Mezzi -> Tipo -> Costo orario -> Costo totale
+# CRISTOFORO | CONTROL ROOM V6
+# Flusso: Servizio -> Sottoservizio -> Certificazione ->
+# Personale/Contratto -> Mezzi/Tipo -> Centro di costo -> Margine
 # ============================================================
 
 st.set_page_config(
@@ -31,35 +30,30 @@ FILES = {
     "personnel": os.path.join(BASE_DIR, "dettaglio_personale_cristoforo.csv"),
     "vehicle_detail": os.path.join(BASE_DIR, "dettaglio_mezzi_cristoforo.csv"),
     "certifications": os.path.join(BASE_DIR, "certificazioni_cristoforo.csv"),
+    "cert_rows": os.path.join(BASE_DIR, "certificazioni_righe_cristoforo.csv"),
     "tariffs": os.path.join(BASE_DIR, "tariffe_cristoforo.csv"),
 }
+
+# ============================================================
+# SERVIZI / SOTTOSERVIZI
+# ============================================================
 
 SERVICE_TREE = {
     "Spazzamenti": ["Scandicci"],
     "Aree Verdi": ["Piana", "Prato"],
     "Porta a Porta": [
         "Prato", "Vaiano", "Campi", "Noventa", "Costabissara",
-        "Cremona", "Mantova", "Lucca"
+        "Cremona", "Mantova", "Lucca",
     ],
     "Trasporti": ["Alia"],
     "Raccolta Cartone Selettivo": ["Firenze", "Piana", "Prato", "Campi"],
     "Ingombranti": ["Prato", "Campi Bisenzio", "Valdisieve", "Mugello"],
 }
+ALL_SUBSERVICES = sorted({x for values in SERVICE_TREE.values() for x in values})
 
-ALL_SUBSERVICES = sorted({v for items in SERVICE_TREE.values() for v in items})
-
-CONTRACTS = {
-    "Servizi Ambientali - Utilitalia": [
-        "Q", "A1", "A2S", "A2", "B1S", "B1", "B2S", "B2",
-        "C1S", "C1", "C2S", "C2", "D1S", "D1", "D2S", "D2"
-    ],
-    "Cooperative Sociali": [
-        "A1", "A2", "B1", "C1", "C2", "C3",
-        "D1", "D2", "D3", "E1", "E2", "F1", "F2"
-    ],
-}
-
-VEHICLE_TYPES = [
+# Tipi mezzo: archivio centrale. La direzione può aggiungerne/modificarne.
+# La struttura evita di legare il calcolo economico alla targa.
+DEFAULT_VEHICLE_TYPES = [
     "Leggero",
     "Furgone",
     "Compattatore",
@@ -69,9 +63,17 @@ VEHICLE_TYPES = [
     "Speciale",
 ]
 
-# Sono valori iniziali configurabili dalla Direzione.
-# I costi del personale partono da 0 perché il costo aziendale reale
-# deve essere inserito dall'azienda e non viene inventato dal gestionale.
+CONTRACTS = {
+    "Servizi Ambientali - Utilitalia": [
+        "Q", "A1", "A2S", "A2", "B1S", "B1", "B2S", "B2",
+        "C1S", "C1", "C2S", "C2", "D1S", "D1", "D2S", "D2",
+    ],
+    "Cooperative Sociali": [
+        "A1", "A2", "B1", "C1", "C2", "C3",
+        "D1", "D2", "D3", "E1", "E2", "F1", "F2",
+    ],
+}
+
 DEFAULT_VEHICLE_COSTS = {
     "Leggero": 15.0,
     "Furgone": 18.0,
@@ -107,710 +109,285 @@ DEFAULT_USERS = pd.DataFrame([
 ])
 
 # ============================================================
-# DESIGN SYSTEM
+# PALETTE CHIARA / ALTO CONTRASTO
 # ============================================================
 
 st.markdown(
     """
 <style>
 :root {
-    --bg: #eef3f0;
-    --panel: #ffffff;
-    --panel-2: #f7faf8;
-    --ink: #1c2b24;
-    --ink-strong: #132019;
-    --muted: #5f6d66;
-    --muted-2: #78857e;
-    --line: #dbe4df;
-    --line-strong: #cbd7d0;
+    --bg: #F1F4F2;
+    --surface: #FFFFFF;
+    --surface-soft: #F8FAF9;
+    --surface-green: #EAF5EE;
+    --text: #16231D;
+    --text-2: #34423B;
+    --muted: #607068;
+    --muted-2: #7A8780;
+    --border: #D7E1DB;
+    --border-strong: #C1D0C7;
 
-    --green: #087a3d;
-    --green-dark: #055f2f;
-    --green-soft: #e8f5ed;
-    --green-border: #c8e4d2;
+    --green: #087A3D;
+    --green-dark: #055A2D;
+    --green-soft: #E4F3E9;
+    --green-line: #BBDCC7;
 
-    --blue: #235fae;
-    --blue-soft: #eaf2fc;
-    --blue-border: #c9dcf4;
+    --blue: #1F5FAF;
+    --blue-soft: #E8F1FC;
+    --blue-line: #C6DAF2;
 
-    --teal: #0b7680;
-    --teal-soft: #e7f5f6;
-    --teal-border: #c7e4e7;
+    --teal: #08777C;
+    --teal-soft: #E5F4F5;
+    --teal-line: #C5E2E4;
 
-    --amber: #916000;
-    --amber-soft: #fff5dc;
-    --amber-border: #efd8a4;
+    --amber: #8A5A00;
+    --amber-soft: #FFF5DE;
+    --amber-line: #EED49C;
 
-    --red: #b42318;
-    --red-soft: #fdecea;
-    --red-border: #efc8c4;
+    --red: #B42318;
+    --red-soft: #FDECEA;
+    --red-line: #EDC8C4;
 
-    --purple: #6847b5;
-    --purple-soft: #f2edff;
-    --purple-border: #ded4fa;
+    --purple: #6744B4;
+    --purple-soft: #F1ECFF;
+    --purple-line: #DCD0FA;
 
-    --shadow: 0 6px 24px rgba(27, 52, 39, 0.06);
+    --shadow: 0 5px 20px rgba(24, 48, 34, 0.055);
 }
 
 html, body, [class*="css"] {
     font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
-.stApp {
-    background: var(--bg);
-    color: var(--ink);
-}
+.stApp { background: var(--bg); color: var(--text); }
+.block-container { max-width: 1520px; padding-top: 1rem; padding-bottom: 4rem; }
 
-.block-container {
-    max-width: 1520px;
-    padding-top: 1rem;
-    padding-bottom: 4rem;
-}
-
-/* ===========================
-   SIDEBAR CHIARA
-   =========================== */
+/* SIDEBAR */
 section[data-testid="stSidebar"] {
-    background: #f8faf9;
-    border-right: 1px solid var(--line-strong);
+    background: #F7FAF8 !important;
+    border-right: 1px solid var(--border) !important;
 }
-
-section[data-testid="stSidebar"] * {
-    color: var(--ink) !important;
-}
-
-section[data-testid="stSidebar"] hr {
-    border-color: var(--line);
-}
-
-section[data-testid="stSidebar"] button {
-    color: var(--ink) !important;
-}
+section[data-testid="stSidebar"] * { color: var(--text) !important; }
+section[data-testid="stSidebar"] hr { border-color: var(--border) !important; }
 
 .brand-box {
-    padding: 9px 4px 18px;
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
 }
+.brand-main { color: var(--green) !important; font-size: 24px; font-weight: 950; letter-spacing: -1px; }
+.brand-sub { color: var(--muted) !important; font-size: 9px; font-weight: 850; letter-spacing: 1px; margin-top: 3px; }
+.nav-label { color: var(--muted) !important; font-size: 10px; text-transform: uppercase; letter-spacing: .9px; font-weight: 900; margin: 4px 4px 9px; }
 
-.brand-main {
-    color: var(--green) !important;
-    font-size: 27px;
-    font-weight: 950;
-    letter-spacing: -1.2px;
-}
-
-.brand-sub {
-    color: var(--muted-2) !important;
-    font-size: 11px;
-    margin-top: 4px;
-    font-weight: 750;
-}
-
-.nav-note {
-    color: var(--muted-2) !important;
-    font-size: 10px;
-    margin: 3px 4px 8px;
-    text-transform: uppercase;
-    letter-spacing: .8px;
-    font-weight: 850;
-}
-
-section[data-testid="stSidebar"] [role="radiogroup"] label {
-    border-radius: 10px;
-    padding: 7px 9px;
-    margin: 2px 0;
-    border: 1px solid transparent;
-}
-
-section[data-testid="stSidebar"] [role="radiogroup"] label:hover {
-    background: #eef5f0;
-}
-
-/* ===========================
-   SIDEBAR MODERNA
-   =========================== */
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #fbfdfc 0%, #f1f6f3 100%) !important;
-    border-right: 1px solid #d8e2dc !important;
-    box-shadow: 6px 0 24px rgba(27, 52, 39, 0.05);
-}
-
-section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-    gap: 0.45rem;
-}
-
-section[data-testid="stSidebar"] [role="radiogroup"] {
-    gap: 6px !important;
-}
-
+section[data-testid="stSidebar"] [role="radiogroup"] { gap: 5px !important; }
 section[data-testid="stSidebar"] [role="radiogroup"] label {
     position: relative;
-    min-height: 42px;
-    display: flex !important;
-    align-items: center;
+    min-height: 40px;
     border-radius: 12px !important;
-    padding: 5px 12px !important;
-    margin: 0 !important;
+    padding: 5px 11px !important;
     border: 1px solid transparent !important;
     background: transparent !important;
-    transition: all .16s ease;
-    cursor: pointer;
+    transition: all .15s ease;
 }
-
-section[data-testid="stSidebar"] [role="radiogroup"] label > div:first-child {
-    display: none !important;
-}
-
-section[data-testid="stSidebar"] [role="radiogroup"] label > div:last-child {
-    width: 100%;
-}
-
-section[data-testid="stSidebar"] [role="radiogroup"] label p {
-    color: #33433b !important;
-    font-weight: 800 !important;
-    font-size: 12px !important;
-    letter-spacing: -.05px;
-}
-
-section[data-testid="stSidebar"] [role="radiogroup"] label:hover {
-    background: #eaf3ed !important;
-    border-color: #d4e6da !important;
-    transform: translateX(2px);
-}
-
-section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
-    background: #dff1e6 !important;
-    border-color: #b9dcc6 !important;
-    box-shadow: 0 5px 14px rgba(8, 122, 61, .08);
-}
-
+section[data-testid="stSidebar"] [role="radiogroup"] label > div:first-child { display: none !important; }
+section[data-testid="stSidebar"] [role="radiogroup"] label p { color: var(--text-2) !important; font-size: 12px !important; font-weight: 800 !important; }
+section[data-testid="stSidebar"] [role="radiogroup"] label:hover { background: #ECF5EF !important; border-color: #D6E8DC !important; transform: translateX(2px); }
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) { background: var(--green-soft) !important; border-color: var(--green-line) !important; box-shadow: 0 4px 12px rgba(8, 122, 61, .07); }
 section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked)::before {
-    content: "";
-    width: 4px;
-    height: 22px;
-    border-radius: 999px;
-    background: #087a3d;
-    position: absolute;
-    left: -1px;
-    top: 50%;
-    transform: translateY(-50%);
+    content: ""; position: absolute; left: -1px; top: 50%; transform: translateY(-50%); width: 4px; height: 22px; border-radius: 999px; background: var(--green);
 }
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p { color: var(--green-dark) !important; font-weight: 900 !important; }
 
-section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p {
-    color: #055f2f !important;
-    font-weight: 900 !important;
-}
-
-section[data-testid="stSidebar"] .stButton > button {
-    border-radius: 12px !important;
-    min-height: 40px !important;
-    background: #ffffff !important;
-    color: #324139 !important;
-    border: 1px solid #d6e1da !important;
-    box-shadow: 0 2px 8px rgba(27, 52, 39, .04);
-    font-weight: 850 !important;
-    transition: all .16s ease;
-}
-
-section[data-testid="stSidebar"] .stButton > button:hover {
-    border-color: #9fc8ad !important;
-    color: #055f2f !important;
-    background: #f3faf5 !important;
-    transform: translateY(-1px);
-}
-
-.sidebar-user-card {
-    background: #ffffff;
-    border: 1px solid #d9e4dd;
+.sidebar-user {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
     border-radius: 14px;
-    padding: 12px;
-    box-shadow: 0 4px 15px rgba(27, 52, 39, .045);
-    margin-top: 8px;
+    padding: 11px 12px;
+    box-shadow: var(--shadow);
 }
+.sidebar-user-name { color: var(--text) !important; font-weight: 900; font-size: 12px; }
+.sidebar-user-meta { color: var(--muted) !important; font-size: 10px; margin-top: 3px; }
 
-.sidebar-user-name {
-    color: #1c2b24 !important;
-    font-size: 12px;
-    font-weight: 900;
-}
-
-.sidebar-user-meta {
-    color: #66756d !important;
-    font-size: 10px;
-    margin-top: 3px;
-}
-
-/* ===========================
-   TOPBAR
-   =========================== */
+/* TOP */
 .topbar {
-    background: #ffffff;
-    border: 1px solid var(--line);
-    border-radius: 18px;
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    border-radius: 17px;
     padding: 14px 18px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     box-shadow: var(--shadow);
-    margin-bottom: 16px;
+    margin-bottom: 15px;
 }
+.title { color: var(--text) !important; font-size: 27px; font-weight: 950; letter-spacing: -.8px; }
+.subtitle { color: var(--muted) !important; font-size: 12px; margin-top: 3px; }
+.user-pill { color: var(--green-dark) !important; background: var(--green-soft); border: 1px solid var(--green-line); border-radius: 999px; padding: 7px 11px; font-size: 10px; font-weight: 900; }
 
-.title {
-    color: var(--ink-strong) !important;
-    font-size: 28px;
-    font-weight: 950;
-    letter-spacing: -.9px;
-}
-
-.subtitle {
-    color: var(--muted) !important;
-    font-size: 12px;
-    margin-top: 3px;
-}
-
-.user-pill {
-    background: var(--green-soft);
-    color: var(--green-dark) !important;
-    border: 1px solid var(--green-border);
-    border-radius: 999px;
-    padding: 8px 12px;
-    font-size: 11px;
-    font-weight: 850;
-}
-
-/* ===========================
-   HERO CHIARO
-   =========================== */
+/* HERO */
 .hero {
     position: relative;
-    overflow: hidden;
-    background: linear-gradient(135deg, #ffffff 0%, #f2f9f4 70%, #e9f5ed 100%);
-    color: var(--ink-strong);
-    border: 1px solid var(--green-border);
-    border-left: 6px solid var(--green);
-    border-radius: 20px;
-    padding: 22px 25px;
-    margin-bottom: 16px;
+    background: linear-gradient(135deg, #FFFFFF 0%, #F4FAF6 100%);
+    border: 1px solid var(--green-line);
+    border-left: 5px solid var(--green);
+    border-radius: 18px;
+    padding: 19px 22px;
     box-shadow: var(--shadow);
-}
-
-.hero::after {
-    content: "";
-    position: absolute;
-    width: 260px;
-    height: 260px;
-    right: -100px;
-    top: -150px;
-    border-radius: 50%;
-    background: rgba(8, 122, 61, .055);
-}
-
-.hero-kicker {
-    color: var(--green-dark) !important;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 1.4px;
-    font-weight: 900;
-}
-
-.hero-title {
-    color: var(--ink-strong) !important;
-    font-size: 30px;
-    font-weight: 950;
-    letter-spacing: -1px;
-    margin-top: 4px;
-}
-
-.hero-copy {
-    color: var(--muted) !important;
-    font-size: 12px;
-    margin-top: 5px;
-    max-width: 900px;
-}
-
-.hero-stat {
-    margin-top: 16px;
-    font-size: 11px;
-    color: var(--green-dark) !important;
-    font-weight: 750;
-}
-
-/* ===========================
-   KPI
-   =========================== */
-.kpi {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 15px;
-    min-height: 120px;
-    box-shadow: var(--shadow);
-    position: relative;
+    margin-bottom: 15px;
     overflow: hidden;
 }
+.hero-kicker { color: var(--green-dark) !important; font-size: 10px; text-transform: uppercase; letter-spacing: 1.3px; font-weight: 950; }
+.hero-title { color: var(--text) !important; font-size: 28px; font-weight: 950; letter-spacing: -1px; margin-top: 3px; }
+.hero-copy { color: var(--muted) !important; max-width: 920px; font-size: 12px; margin-top: 4px; line-height: 1.5; }
+.hero-stat { color: var(--green-dark) !important; font-size: 10px; font-weight: 800; margin-top: 12px; }
 
-.kpi-strip {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 4px;
-    background: var(--green);
-}
-
-.kpi.blue .kpi-strip { background: var(--blue); }
-.kpi.teal .kpi-strip { background: var(--teal); }
-.kpi.amber .kpi-strip { background: #d49a13; }
-.kpi.purple .kpi-strip { background: var(--purple); }
-.kpi.red .kpi-strip { background: var(--red); }
-
-.kpi-label {
-    display: inline-block;
-    background: #edf2ef;
-    color: var(--ink) !important;
-    border: 1px solid #dbe4df;
-    border-radius: 7px;
-    padding: 5px 8px;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: .65px;
-    font-weight: 900;
-}
-
-.kpi-value {
-    color: var(--ink-strong) !important;
-    font-size: 27px;
-    font-weight: 950;
-    line-height: 1.08;
-    margin-top: 8px;
-}
-
-.kpi-note {
-    color: var(--muted-2) !important;
-    font-size: 10px;
-    margin-top: 5px;
-}
-
-/* ===========================
-   PANEL / TITOLI
-   =========================== */
-.panel {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 17px;
-    padding: 16px;
-    box-shadow: var(--shadow);
-    margin-bottom: 14px;
-}
-
-.panel-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--green-soft);
-    border: 1px solid var(--green-border);
-    color: var(--green-dark) !important;
-    border-radius: 10px;
-    padding: 8px 11px;
-    font-size: 14px;
-    font-weight: 900;
-}
-
-.panel-sub {
-    font-size: 10px;
-    color: var(--muted) !important;
-    margin-top: 7px;
-}
-
+/* SECTION */
 .section-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    color: var(--text) !important;
     font-size: 17px;
     font-weight: 950;
-    color: var(--ink-strong) !important;
-    margin: 20px 0 9px;
-    padding-left: 10px;
+    margin: 19px 0 9px;
+    padding-left: 9px;
     border-left: 4px solid var(--green);
 }
 
-/* ===========================
-   MATRIX / BADGE
-   =========================== */
-.matrix-row {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    padding: 9px 0;
-    border-bottom: 1px solid #edf1ee;
-}
-
-.matrix-name {
-    width: 185px;
-    font-weight: 850;
-    font-size: 12px;
-    color: var(--ink) !important;
-    padding-top: 5px;
-}
-
-.pill {
-    border-radius: 999px;
-    padding: 5px 9px;
-    font-size: 10px;
-    font-weight: 800;
-    background: #f2f5f3;
-    color: #405048 !important;
-    border: 1px solid #e0e7e3;
-}
-
-.pill.on { background: var(--green-soft); color: var(--green-dark) !important; border-color: var(--green-border); }
-.pill.warn { background: var(--amber-soft); color: var(--amber) !important; border-color: var(--amber-border); }
-.pill.bad { background: var(--red-soft); color: var(--red) !important; border-color: var(--red-border); }
-
-.status {
-    border-radius: 12px;
-    padding: 8px 10px;
-    font-size: 10px;
-    font-weight: 900;
-    display: inline-block;
-}
-
-.status.ok { background: var(--green-soft); color: var(--green-dark) !important; border: 1px solid var(--green-border); }
-.status.warn { background: var(--amber-soft); color: var(--amber) !important; border: 1px solid var(--amber-border); }
-.status.bad { background: var(--red-soft); color: var(--red) !important; border: 1px solid var(--red-border); }
-.status.info { background: var(--blue-soft); color: var(--blue) !important; border: 1px solid var(--blue-border); }
-
-/* ===========================
-   PROCESS CARDS
-   =========================== */
-.step {
-    background: #ffffff;
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 15px;
+/* KPI */
+.kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 15px;
+    min-height: 118px;
+    padding: 14px 15px 13px 18px;
     box-shadow: var(--shadow);
-    min-height: 125px;
+    position: relative;
+    overflow: hidden;
 }
+.kpi-strip { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--green); }
+.kpi.blue .kpi-strip { background: var(--blue); }
+.kpi.teal .kpi-strip { background: var(--teal); }
+.kpi.amber .kpi-strip { background: #C28600; }
+.kpi.purple .kpi-strip { background: var(--purple); }
+.kpi.red .kpi-strip { background: var(--red); }
+.kpi-label { color: var(--muted) !important; font-size: 10px; text-transform: uppercase; letter-spacing: .65px; font-weight: 950; }
+.kpi-value { color: var(--text) !important; font-size: 26px; line-height: 1.05; font-weight: 950; margin-top: 7px; }
+.kpi-note { color: var(--muted-2) !important; font-size: 10px; margin-top: 5px; }
 
-.step-num {
-    color: var(--green-dark) !important;
-    font-size: 10px;
-    font-weight: 950;
-    text-transform: uppercase;
-    letter-spacing: .7px;
-}
+/* PANEL */
+.panel { background: #FFFFFF; border: 1px solid var(--border); border-radius: 16px; padding: 15px; box-shadow: var(--shadow); margin-bottom: 13px; }
+.panel-title { display:flex; align-items:center; background: var(--surface-soft); border:1px solid var(--border); border-radius: 10px; color: var(--text) !important; padding: 8px 10px; font-size: 13px; font-weight: 900; }
+.panel-sub { color: var(--muted) !important; font-size: 10px; margin-top: 6px; }
 
-.step-title {
-    font-size: 16px;
-    font-weight: 900;
-    color: var(--ink-strong) !important;
-    margin-top: 5px;
-}
+/* STATUS */
+.status { display:inline-block; border-radius: 999px; padding: 6px 9px; font-size: 10px; font-weight: 950; }
+.status.ok { color: var(--green-dark) !important; background: var(--green-soft); border:1px solid var(--green-line); }
+.status.warn { color: var(--amber) !important; background: var(--amber-soft); border:1px solid var(--amber-line); }
+.status.bad { color: var(--red) !important; background: var(--red-soft); border:1px solid var(--red-line); }
+.status.info { color: var(--blue) !important; background: var(--blue-soft); border:1px solid var(--blue-line); }
 
-.step-text {
-    color: var(--muted) !important;
-    font-size: 10px;
-    line-height: 1.5;
-    margin-top: 4px;
-}
+/* PILLS */
+.pill { display:inline-block; border-radius:999px; padding:5px 8px; margin:2px 4px 2px 0; font-size:10px; font-weight:850; background:#F3F6F4; color:#405048 !important; border:1px solid var(--border); }
+.pill.ok { background: var(--green-soft); color: var(--green-dark) !important; border-color: var(--green-line); }
+.pill.warn { background: var(--amber-soft); color: var(--amber) !important; border-color: var(--amber-line); }
+.pill.bad { background: var(--red-soft); color: var(--red) !important; border-color: var(--red-line); }
 
-/* ===========================
-   LOGIN
-   =========================== */
-.login-card {
-    max-width: 430px;
-    margin: 8vh auto 0;
-    background: #ffffff;
-    border: 1px solid var(--line);
-    border-radius: 23px;
-    padding: 35px;
-    box-shadow: 0 20px 60px rgba(20, 40, 30, .08);
-}
+/* PROCESS */
+.step { background:#FFFFFF; border:1px solid var(--border); border-radius:15px; padding:14px; min-height:120px; box-shadow:var(--shadow); }
+.step-num { color:var(--green-dark) !important; font-size:9px; font-weight:950; text-transform:uppercase; letter-spacing:.8px; }
+.step-title { color:var(--text) !important; font-size:15px; font-weight:900; margin-top:4px; }
+.step-text { color:var(--muted) !important; font-size:10px; line-height:1.45; margin-top:4px; }
 
-.login-logo {
-    text-align: center;
-    color: var(--green) !important;
-    font-size: 36px;
-    font-weight: 950;
-    letter-spacing: -1px;
-}
-
-.login-sub {
-    text-align: center;
-    color: var(--muted) !important;
-    font-size: 12px;
-    margin: 5px 0 23px;
-}
-
-/* ===========================
-   STREAMLIT WIDGETS
-   =========================== */
+/* WIDGETS */
 [data-testid="stWidgetLabel"] p,
 [data-testid="stWidgetLabel"] label,
-[data-testid="stWidgetLabel"] span {
-    color: var(--ink-strong) !important;
-    font-weight: 750 !important;
-}
-
-.stMarkdown p,
-.stMarkdown h1,
-.stMarkdown h2,
-.stMarkdown h3,
-.stMarkdown h4,
-.stMarkdown li {
-    color: var(--ink) !important;
-}
+[data-testid="stWidgetLabel"] span { color: var(--text) !important; font-weight: 800 !important; }
+.stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4 { color: var(--text) !important; }
+.stCaption, [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] * { color: var(--muted) !important; }
 
 div[data-baseweb="select"] > div,
 div[data-baseweb="input"],
 div[data-baseweb="textarea"],
-input,
-textarea {
-    background: #ffffff !important;
-    color: var(--ink-strong) !important;
-    border-color: var(--line-strong) !important;
+input, textarea {
+    background:#FFFFFF !important;
+    color:var(--text) !important;
+    border-color:var(--border-strong) !important;
 }
+input::placeholder, textarea::placeholder { color:#8A968F !important; }
+div[data-baseweb="select"] *, div[data-baseweb="input"] *, div[data-baseweb="textarea"] * { color:var(--text) !important; }
+[data-baseweb="menu"], [data-baseweb="popover"] { background:#FFFFFF !important; }
+[data-baseweb="menu"] li { color:var(--text) !important; }
+[data-baseweb="menu"] li:hover { background:#EDF5F0 !important; }
 
-input::placeholder,
-textarea::placeholder {
-    color: #8a968f !important;
-}
+div.stButton > button { min-height:40px; border-radius:11px; font-weight:900; }
+div.stButton > button[kind="primary"] { background:var(--green) !important; color:#FFFFFF !important; border-color:var(--green) !important; }
+div.stButton > button:not([kind="primary"]) { background:#FFFFFF !important; color:var(--text) !important; border-color:var(--border-strong) !important; }
+div.stButton > button:hover { transform:translateY(-1px); }
 
-div[data-baseweb="select"] *,
-div[data-baseweb="input"] *,
-div[data-baseweb="textarea"] * {
-    color: var(--ink-strong) !important;
-}
+[data-testid="stMetric"] { background:#FFFFFF !important; border:1px solid var(--border) !important; border-radius:13px !important; }
+[data-testid="stMetricLabel"] { color:var(--muted) !important; }
+[data-testid="stMetricValue"] { color:var(--text) !important; }
 
-[data-baseweb="popover"] {
-    background: #ffffff !important;
-}
+[data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+[data-testid="stFileUploader"] section { background:#FFFFFF !important; border:1px dashed var(--border-strong) !important; border-radius:14px !important; }
+[data-testid="stFileUploader"] section * { color:var(--text-2) !important; }
+[data-testid="stExpander"] { background:#FFFFFF !important; border:1px solid var(--border) !important; border-radius:14px !important; }
+[data-testid="stExpander"] summary * { color:var(--text) !important; font-weight:850 !important; }
 
-[data-baseweb="menu"] {
-    background: #ffffff !important;
-}
-
-[data-baseweb="menu"] li {
-    color: var(--ink) !important;
-}
-
-[data-baseweb="menu"] li:hover {
-    background: #edf5f0 !important;
-}
-
-div.stButton > button {
-    border-radius: 10px;
-    font-weight: 850;
-    min-height: 40px;
-    border: 1px solid var(--green);
-}
-
-div.stButton > button[kind="primary"] {
-    background: var(--green) !important;
-    color: #ffffff !important;
-}
-
-div.stButton > button:not([kind="primary"]) {
-    background: #ffffff !important;
-    color: var(--ink-strong) !important;
-    border-color: var(--line-strong) !important;
-}
-
-div[data-testid="stDataEditor"],
-[data-testid="stDataFrame"] {
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    overflow: hidden;
-}
-
-[data-testid="stMetric"] {
-    background: #ffffff !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 14px !important;
-}
-
-[data-testid="stMetricLabel"] {
-    color: var(--muted) !important;
-}
-
-[data-testid="stMetricValue"] {
-    color: var(--ink-strong) !important;
-}
-
-/* Alert box leggibili */
-[data-testid="stAlert"] {
-    border-radius: 12px;
-}
-
-/* ===========================
-   CONTRAST FIX GLOBALE
-   =========================== */
-
-.stCaption, [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
-    color: #68766e !important;
-}
-
-[data-testid="stExpander"] {
-    background: #ffffff !important;
-    border: 1px solid #d8e3dc !important;
-    border-radius: 14px !important;
-}
-
-[data-testid="stExpander"] summary p,
-[data-testid="stExpander"] summary span {
-    color: #1c2b24 !important;
-    font-weight: 850 !important;
-}
-
-[data-testid="stDataFrame"] div,
-[data-testid="stDataEditor"] div {
-    color: #1c2b24 !important;
-}
-
-[data-testid="stFileUploader"] section {
-    background: #ffffff !important;
-    border: 1px dashed #b9cbbf !important;
-    border-radius: 14px !important;
-}
-
-[data-testid="stFileUploader"] section * {
-    color: #33433b !important;
-}
-
-[data-testid="stProgress"] div {
-    background-color: #087a3d !important;
-}
-
-/* Footer */
-.footer {
-    text-align: center;
-    color: #7a8780 !important;
-    font-size: 10px;
-    padding: 30px 0 5px;
-}
-
-footer { visibility: hidden; }
+.footer { text-align:center; color:var(--muted-2) !important; font-size:10px; padding:30px 0 5px; }
+footer { visibility:hidden; }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-
 # ============================================================
-# UTILITA' DATI
+# UTILITY DATA
 # ============================================================
 
 def clean_col(value):
-    s = str(value).replace("\ufeff", "").strip().lower()
-    trans = str.maketrans({"à":"a", "è":"e", "é":"e", "ì":"i", "ò":"o", "ù":"u"})
-    s = s.translate(trans)
-    s = s.replace("€", "euro").replace("/", "_").replace("-", "_").replace(" ", "_")
-    return re.sub(r"_+", "_", s).strip("_")
+    text = str(value).replace("\ufeff", "").strip().lower()
+    trans = str.maketrans({"à": "a", "è": "e", "é": "e", "ì": "i", "ò": "o", "ù": "u"})
+    text = text.translate(trans)
+    text = text.replace("€", "euro").replace("/", "_").replace("-", "_").replace(" ", "_")
+    return re.sub(r"_+", "_", text).strip("_")
 
 
 def normalize_columns(df):
+    if df is None:
+        return pd.DataFrame()
+    out = df.copy()
+    out.columns = [clean_col(c) for c in out.columns]
+    return out
+
+
+def aliases_rename(df, aliases):
+    df = normalize_columns(df)
+    reverse = {clean_col(k): k for k in aliases}
+    mapping = {}
+    for target, names in aliases.items():
+        candidates = [target] + list(names)
+        found = None
+        for candidate in candidates:
+            c = clean_col(candidate)
+            if c in df.columns:
+                found = c
+                break
+        if found and found != clean_col(target):
+            mapping[found] = target
+        elif found == clean_col(target):
+            mapping[found] = target
+    if mapping:
+        df = df.rename(columns=mapping)
+    return df
+
+
+def ensure(df, columns):
     out = df.copy() if df is not None else pd.DataFrame()
-    if not out.empty or len(out.columns) > 0:
-        out.columns = [clean_col(c) for c in out.columns]
+    for col in columns:
+        if col not in out.columns:
+            out[col] = ""
     return out
 
 
@@ -828,49 +405,34 @@ def read_csv_flexible(path):
 
 
 def save_csv(df, path):
-    df.to_csv(path, index=False, encoding="utf-8-sig")
-
-
-def aliases_rename(df, mapping):
-    df = normalize_columns(df)
-    existing = {clean_col(c): c for c in df.columns}
-    rename = {}
-    for target, aliases in mapping.items():
-        for name in [target] + list(aliases):
-            key = clean_col(name)
-            if key in existing:
-                rename[existing[key]] = target
-                break
-    return df.rename(columns=rename)
-
-
-def ensure(df, columns):
     out = df.copy()
-    for col in columns:
-        if col not in out.columns:
-            out[col] = ""
-    return out
+    out.to_csv(path, index=False, encoding="utf-8-sig")
 
 
 def parse_num(value):
     if value is None:
         return 0.0
     if isinstance(value, (int, float, np.integer, np.floating)):
-        return 0.0 if pd.isna(value) else float(value)
-    s = str(value).strip().replace("€", "").replace("EUR", "").replace("eur", "").replace(" ", "")
-    if not s:
+        if pd.isna(value):
+            return 0.0
+        return float(value)
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "nat"}:
         return 0.0
-    if "," in s and "." in s:
-        if s.rfind(",") > s.rfind("."):
-            s = s.replace(".", "").replace(",", ".")
+    text = text.replace("€", "").replace("EUR", "").replace("eur", "").replace(" ", "")
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
         else:
-            s = s.replace(",", "")
-    elif "," in s:
-        s = s.replace(",", ".")
-    elif s.count(".") == 1 and len(s.split(".")[-1]) == 3:
-        s = s.replace(".", "")
+            text = text.replace(",", "")
+    elif "," in text:
+        text = text.replace(",", ".")
+    elif text.count(".") == 1:
+        a, b = text.split(".")
+        if len(b) == 3:
+            text = a + b
     try:
-        return float(s)
+        return float(text)
     except Exception:
         return 0.0
 
@@ -879,42 +441,39 @@ def parse_hours(value):
     if value is None:
         return 0.0
     if isinstance(value, (int, float, np.integer, np.floating)):
-        x = float(value)
-        return x * 24 if 0 < x < 1 else x
-    s = str(value).strip()
-    if not s:
+        n = float(value)
+        if 0 < n < 1:
+            return n * 24
+        return n
+    text = str(value).strip()
+    if not text:
         return 0.0
-    if ":" in s:
+    if ":" in text:
+        parts = text.split(":")
         try:
-            p = s.split(":")
-            return float(p[0]) + float(p[1]) / 60
+            h = float(parts[0])
+            m = float(parts[1]) if len(parts) > 1 else 0.0
+            s = float(parts[2]) if len(parts) > 2 else 0.0
+            return h + m / 60 + s / 3600
         except Exception:
             pass
-    return parse_num(s)
+    return parse_num(text)
 
 
 def parse_date(value):
     if value is None or str(value).strip() == "":
         return pd.NaT
-    return pd.to_datetime(value, dayfirst=True, errors="coerce")
+    try:
+        return pd.to_datetime(value, dayfirst=True, errors="coerce")
+    except Exception:
+        return pd.NaT
 
 
-def euro(value):
-    x = parse_num(value)
-    return f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def num(value, dec=1):
-    x = parse_num(value)
-    return f"{x:,.{dec}f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def percent(value):
-    return f"{parse_num(value):.1f}%".replace(".", ",")
+def safe_value(value):
+    return parse_num(value)
 
 
 def safe_sum(series):
-    """Somma robusta: gestisce numeri, stringhe, celle vuote e NaN."""
     if series is None:
         return 0.0
     try:
@@ -923,26 +482,164 @@ def safe_sum(series):
         return 0.0
 
 
-def safe_value(value):
-    """Converte qualsiasi valore economico in float senza propagare errori."""
-    return parse_num(value)
+def euro(value):
+    x = parse_num(value)
+    return f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def margin_status(margin, margin_pct, has_data=True):
-    """Semaforo gestionale: OK / ATTENZIONE / CRITICO."""
+def num(value, decimals=1):
+    x = parse_num(value)
+    return f"{x:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def pct(value):
+    return f"{parse_num(value):.1f}%".replace(".", ",")
+
+
+def is_admin():
+    return str(st.session_state.get("ruolo", "")).lower() in {"admin", "direzione"}
+
+
+def split_people(value):
+    if value is None:
+        return []
+    text = str(value).replace("\n", ";")
+    parts = re.split(r"[;,|]+", text)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def status_for_margin(margin, margin_pct, has_data):
     m = safe_value(margin)
     p = safe_value(margin_pct)
     if not has_data:
-        return ("ATTENZIONE", "Nessun dato consuntivato", "warn")
+        return "ATTENZIONE", "Nessun dato consuntivato", "warn"
     if m < 0:
-        return ("CRITICO", "Margine negativo", "bad")
+        return "CRITICO", "Margine negativo", "bad"
     if p < 5:
-        return ("ATTENZIONE", "Margine molto contenuto", "warn")
-    return ("OK", "Margine sotto controllo", "ok")
+        return "ATTENZIONE", "Margine molto contenuto", "warn"
+    return "OK", "Margine sotto controllo", "ok"
 
+
+def centro_costo(service, subservice):
+    return f"{service} · {subservice}"
 
 # ============================================================
-# INIT FILE
+# CERTIFICATION SCHEMA: exactly the table supplied by the user
+# ============================================================
+
+CERT_ALIASES = {
+    "ID": ["id_servizio", "id_record", "id_certificazione"],
+    "Codice": ["codice_servizio", "codice_mezzo", "code"],
+    "Descrizione": ["descrizione_servizio", "descrizione_mezzo", "description"],
+    "Comuni": ["comune", "comuni", "territorio", "citta"],
+    "Centro di Costo": ["centro_di_costo", "centro_costo", "cost_center"],
+    "Data Pianificazione": ["data_pianificazione", "planning_date"],
+    "Inizio Pianificazione": ["inizio_pianificazione", "planning_start"],
+    "Fine Pianificazione": ["fine_pianificazione", "planning_end"],
+    "Orario Previsto": ["orario_previsto", "durata_prevista", "planned_duration"],
+    "Data Svolgimento": ["data_svolgimento", "data_esecuzione", "execution_date"],
+    "Inizio Svolgimento": ["inizio_svolgimento", "inizio_esecuzione", "execution_start"],
+    "Fine Svolgimento": ["fine_svolgimento", "fine_esecuzione", "execution_end"],
+    "Durata": ["durata_svolgimento", "ore", "ore_lavorate", "duration"],
+    "Operatori": ["operatore", "dipendente", "addetto", "operatori", "personale"],
+    "Targa": ["targa", "plate"],
+    "Attrezzatura": ["attrezzatura", "equipment", "mezzo", "veicolo"],
+    "Note": ["note", "commenti"],
+    "Stato": ["stato", "status", "stato_servizio"],
+}
+
+CERT_COLUMNS = list(CERT_ALIASES.keys())
+
+
+def score_cert_header(df):
+    if df is None or df.empty:
+        return 0
+    cols = {clean_col(c) for c in df.columns}
+    aliases = set()
+    for target, names in CERT_ALIASES.items():
+        aliases.add(clean_col(target))
+        aliases.update(clean_col(x) for x in names)
+    return len(cols.intersection(aliases))
+
+
+def load_uploaded_raw(uploaded):
+    name = uploaded.name.lower()
+    if name.endswith(".csv"):
+        raw = uploaded.getvalue()
+        text = None
+        for enc in ("utf-8-sig", "utf-8", "latin1"):
+            try:
+                text = raw.decode(enc)
+                break
+            except Exception:
+                continue
+        if text is None:
+            raise ValueError("Codifica CSV non riconosciuta.")
+        return pd.read_csv(io.StringIO(text), sep=None, engine="python")
+    if name.endswith((".xlsx", ".xls")):
+        excel = pd.ExcelFile(uploaded)
+        best_df = None
+        best_score = -1
+        for sheet in excel.sheet_names:
+            for header in range(0, 4):
+                try:
+                    sample = pd.read_excel(excel, sheet_name=sheet, header=header, nrows=30)
+                    score = score_cert_header(sample)
+                    if score > best_score:
+                        best_df = pd.read_excel(excel, sheet_name=sheet, header=header)
+                        best_score = score
+                except Exception:
+                    continue
+        if best_df is None:
+            raise ValueError("Nessun foglio Excel leggibile.")
+        return best_df
+    raise ValueError("Formato non supportato.")
+
+
+def normalize_certification(df):
+    df = aliases_rename(df, CERT_ALIASES)
+    df = ensure(df, CERT_COLUMNS)[CERT_COLUMNS].copy()
+
+    for col in ["ID", "Codice", "Descrizione", "Comuni", "Centro di Costo", "Operatori", "Targa", "Attrezzatura", "Note", "Stato"]:
+        df[col] = df[col].astype(str).str.replace("\ufeff", "", regex=False).str.strip()
+
+    for col in ["Data Pianificazione", "Data Svolgimento"]:
+        df[col] = df[col].apply(parse_date)
+
+    for col in ["Inizio Pianificazione", "Fine Pianificazione", "Inizio Svolgimento", "Fine Svolgimento"]:
+        df[col] = df[col].astype(str).str.strip()
+
+    df["Orario Previsto"] = df["Orario Previsto"].apply(parse_hours)
+    df["Durata"] = df["Durata"].apply(parse_hours)
+
+    # Fallback: se manca la data svolgimento ma c'è la pianificazione, usiamo la pianificazione solo per analisi.
+    df["Data Analisi"] = df["Data Svolgimento"]
+    df.loc[df["Data Analisi"].isna(), "Data Analisi"] = df.loc[df["Data Analisi"].isna(), "Data Pianificazione"]
+
+    # Se la durata è assente ma ci sono inizio/fine, prova a ricavarla.
+    def duration_from_times(row):
+        current = parse_hours(row["Durata"])
+        if current > 0:
+            return current
+        try:
+            start = pd.to_datetime(str(row["Inizio Svolgimento"]), format="%H:%M", errors="coerce")
+            end = pd.to_datetime(str(row["Fine Svolgimento"]), format="%H:%M", errors="coerce")
+            if pd.notna(start) and pd.notna(end):
+                delta = (end - start).total_seconds() / 3600
+                if delta < 0:
+                    delta += 24
+                return max(delta, 0)
+        except Exception:
+            pass
+        return 0.0
+
+    df["Durata"] = df.apply(duration_from_times, axis=1)
+    df["Stato"] = df["Stato"].replace("", "Da verificare")
+
+    return df
+
+# ============================================================
+# INIT FILES
 # ============================================================
 
 def init_files():
@@ -954,21 +651,23 @@ def init_files():
         save_csv(pd.DataFrame(columns=["Targa", "Mezzo", "Tipo", "Sottoservizio"]), FILES["vehicles"])
     if not os.path.exists(FILES["services"]):
         save_csv(pd.DataFrame(columns=[
-            "ID", "Data", "Servizio", "Sottoservizio", "Tonnellate", "Ricavi",
-            "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Note", "Creato Da"
+            "ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "Tonnellate", "Ricavi",
+            "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da",
         ]), FILES["services"])
     if not os.path.exists(FILES["personnel"]):
         save_csv(pd.DataFrame(columns=[
-            "ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Matricola",
-            "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale"
+            "ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore",
+            "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match",
         ]), FILES["personnel"])
     if not os.path.exists(FILES["vehicle_detail"]):
         save_csv(pd.DataFrame(columns=[
-            "ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Targa",
-            "Mezzo", "Tipo", "Ore", "Costo Orario", "Costo Totale"
+            "ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura",
+            "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match",
         ]), FILES["vehicle_detail"])
     if not os.path.exists(FILES["certifications"]):
-        save_csv(pd.DataFrame(columns=["ID Import", "Data Import", "File", "Righe", "Esito", "Operatore"]), FILES["certifications"])
+        save_csv(pd.DataFrame(columns=["ID Import", "Data Import", "File", "Righe", "Ore", "Stato", "Operatore"]), FILES["certifications"])
+    if not os.path.exists(FILES["cert_rows"]):
+        save_csv(pd.DataFrame(columns=CERT_COLUMNS + ["ID Import"]), FILES["cert_rows"])
     if not os.path.exists(FILES["tariffs"]):
         rows = []
         for contract, levels in CONTRACTS.items():
@@ -976,16 +675,16 @@ def init_files():
                 rows.append({"Tipo": "Personale", "Contratto": contract, "Livello_o_Tipo": level, "Costo_Orario": 0.0, "Attivo": "SI"})
         for kind, cost in DEFAULT_VEHICLE_COSTS.items():
             rows.append({"Tipo": "Mezzo", "Contratto": "", "Livello_o_Tipo": kind, "Costo_Orario": cost, "Attivo": "SI"})
-        rows.append({"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Overhead", "Costo_Orario": 15.0, "Attivo": "SI"})
-        rows.append({"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Tariffa tonnellata", "Costo_Orario": 130.0, "Attivo": "SI"})
+        rows.extend([
+            {"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Overhead", "Costo_Orario": 15.0, "Attivo": "SI"},
+            {"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Tariffa tonnellata", "Costo_Orario": 130.0, "Attivo": "SI"},
+        ])
         save_csv(pd.DataFrame(rows), FILES["tariffs"])
-
 
 init_files()
 
-
 # ============================================================
-# READ DATA
+# READERS
 # ============================================================
 
 def read_users():
@@ -996,13 +695,13 @@ def read_users():
         "ruolo": ["role", "profilo"],
         "autorizzazioni": ["cantieri", "commesse", "cantiere", "accessi"],
     })
-    required = ["username", "password", "nome", "ruolo", "autorizzazioni"]
-    if df.empty or not all(c in df.columns for c in required):
+    cols = ["username", "password", "nome", "ruolo", "autorizzazioni"]
+    if df.empty or not all(c in df.columns for c in cols):
         return DEFAULT_USERS.copy()
-    df = ensure(df, required)
-    for c in required:
+    df = ensure(df, cols)[cols].copy()
+    for c in cols:
         df[c] = df[c].astype(str).str.strip()
-    return df[required].copy()
+    return df
 
 
 def read_operators():
@@ -1015,7 +714,10 @@ def read_operators():
         "Sottoservizio": ["cantiere", "commessa", "subservice"],
     })
     cols = ["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Sottoservizio"]
-    return ensure(df, cols)[cols].copy()
+    df = ensure(df, cols)[cols].copy()
+    for c in cols:
+        df[c] = df[c].astype(str).str.strip()
+    return df
 
 
 def read_vehicles():
@@ -1026,7 +728,10 @@ def read_vehicles():
         "Sottoservizio": ["cantiere", "commessa", "subservice"],
     })
     cols = ["Targa", "Mezzo", "Tipo", "Sottoservizio"]
-    return ensure(df, cols)[cols].copy()
+    df = ensure(df, cols)[cols].copy()
+    for c in cols:
+        df[c] = df[c].astype(str).str.strip()
+    return df
 
 
 def read_tariffs():
@@ -1044,38 +749,49 @@ def read_tariffs():
 
 
 def read_services():
+    # Compatibilità con lo storico precedente:
+    # Categoria -> Servizio, Cantiere/Dettaglio -> Sottoservizio.
     df = aliases_rename(read_csv_flexible(FILES["services"]), {
         "ID": ["id_consuntivo", "id"],
         "Data": ["data_servizio", "giorno", "date"],
         "Servizio": ["categoria", "servizio_principale", "tipo_servizio"],
         "Sottoservizio": ["sotto_servizio", "dettaglio", "cantiere", "commessa"],
-        "Tonnellate": ["ton", "tonnellaggio", "quantita_tonnellate"],
+        "Centro di Costo": ["centro_di_costo", "centro_costo"],
+        "Tonnellate": ["ton", "tonnellaggio"],
         "Ricavi": ["ricavo", "ricavi_euro", "revenue", "fatturato"],
-        "Costo Personale": ["costo_personale", "personale_costo"],
-        "Costo Mezzi": ["costo_mezzi", "mezzi_costo"],
+        "Costo Personale": ["costo_personale"],
+        "Costo Mezzi": ["costo_mezzi"],
         "Overhead": ["overhead", "costi_indiretti"],
         "Costo Totale": ["costo", "costi", "costo_totale"],
         "Margine": ["margine_netto", "profitto"],
+        "Ore Uomo": ["ore_uomo", "ore_personale", "ore_operatori"],
+        "Ore Mezzi": ["ore_mezzi", "ore_veicoli"],
         "Note": ["note", "commenti"],
         "Creato Da": ["operatore", "utente", "created_by"],
     })
-    cols = ["ID", "Data", "Servizio", "Sottoservizio", "Tonnellate", "Ricavi",
-            "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Note", "Creato Da"]
+    cols = ["ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "Tonnellate", "Ricavi",
+            "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da"]
     df = ensure(df, cols)[cols].copy()
     df["Data"] = df["Data"].apply(parse_date)
-    for c in ["Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine"]:
-        df[c] = df[c].apply(parse_num)
-    for c in ["ID", "Servizio", "Sottoservizio", "Note", "Creato Da"]:
+    for c in ["Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi"]:
+        if c in ["Ore Uomo", "Ore Mezzi"]:
+            df[c] = df[c].apply(parse_hours)
+        else:
+            df[c] = df[c].apply(parse_num)
+    for c in ["ID", "Servizio", "Sottoservizio", "Centro di Costo", "Note", "Creato Da"]:
         df[c] = df[c].astype(str).str.strip()
     if not df.empty:
         missing = df["Margine"].eq(0) & (df["Ricavi"].ne(0) | df["Costo Totale"].ne(0))
         df.loc[missing, "Margine"] = df.loc[missing, "Ricavi"] - df.loc[missing, "Costo Totale"]
+        missing_cc = df["Centro di Costo"].eq("")
+        df.loc[missing_cc, "Centro di Costo"] = df.loc[missing_cc].apply(lambda r: centro_costo(r["Servizio"], r["Sottoservizio"]), axis=1)
     return df
 
 
 def read_personnel():
     df = aliases_rename(read_csv_flexible(FILES["personnel"]), {
         "ID Consuntivo": ["id_consuntivo", "id"],
+        "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"],
         "Data": ["data"],
         "Servizio": ["categoria", "servizio"],
         "Sottoservizio": ["cantiere", "commessa", "dettaglio"],
@@ -1086,8 +802,9 @@ def read_personnel():
         "Ore": ["ore_lavorate", "hours"],
         "Costo Orario": ["costo_orario", "tariffa"],
         "Costo Totale": ["costo", "costo_totale"],
+        "Stato Match": ["stato_match", "match"],
     })
-    cols = ["ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale"]
+    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
     df = ensure(df, cols)[cols].copy()
     df["Data"] = df["Data"].apply(parse_date)
     df["Ore"] = df["Ore"].apply(parse_hours)
@@ -1099,17 +816,19 @@ def read_personnel():
 def read_vehicle_detail():
     df = aliases_rename(read_csv_flexible(FILES["vehicle_detail"]), {
         "ID Consuntivo": ["id_consuntivo", "id"],
+        "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"],
         "Data": ["data"],
         "Servizio": ["categoria", "servizio"],
         "Sottoservizio": ["cantiere", "commessa", "dettaglio"],
         "Targa": ["targa", "plate"],
-        "Mezzo": ["mezzo", "veicolo"],
+        "Attrezzatura": ["attrezzatura", "equipment"],
         "Tipo": ["tipo", "tipo_mezzo"],
         "Ore": ["ore_lavorate", "hours"],
         "Costo Orario": ["costo_orario", "tariffa"],
         "Costo Totale": ["costo", "costo_totale"],
+        "Stato Match": ["stato_match", "match"],
     })
-    cols = ["ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Targa", "Mezzo", "Tipo", "Ore", "Costo Orario", "Costo Totale"]
+    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
     df = ensure(df, cols)[cols].copy()
     df["Data"] = df["Data"].apply(parse_date)
     df["Ore"] = df["Ore"].apply(parse_hours)
@@ -1118,29 +837,35 @@ def read_vehicle_detail():
     return df
 
 
-# ============================================================
-# ACCESSI + TARIFFE
-# ============================================================
-
-def is_admin():
-    return str(st.session_state.get("ruolo", "")).lower() in {"admin", "direzione"}
+def read_cert_rows():
+    df = aliases_rename(read_csv_flexible(FILES["cert_rows"]), {
+        **CERT_ALIASES,
+        "ID Import": ["id_import", "import_id"],
+    })
+    cols = CERT_COLUMNS + ["ID Import"]
+    df = ensure(df, cols)[cols].copy()
+    for c in ["Data Pianificazione", "Data Svolgimento"]:
+        df[c] = df[c].apply(parse_date)
+    df["Orario Previsto"] = df["Orario Previsto"].apply(parse_hours)
+    df["Durata"] = df["Durata"].apply(parse_hours)
+    return df
 
 
 def split_access(value):
-    if str(value).strip().upper() in {"TUTTI", "ALL", "*"}:
+    raw = str(value).strip()
+    if raw.upper() in {"TUTTI", "ALL", "*"}:
         return ALL_SUBSERVICES.copy()
-    values = re.split(r"[,;|]", str(value))
-    return sorted([x.strip() for x in values if x.strip() in ALL_SUBSERVICES])
+    values = re.split(r"[,;|]", raw)
+    return sorted({x.strip() for x in values if x.strip() in ALL_SUBSERVICES})
 
 
-def authorized_services(df, column="Sottoservizio"):
+def authorized(df, column="Sottoservizio"):
     if df is None or df.empty or is_admin():
         return df.copy() if df is not None else pd.DataFrame()
     allowed = st.session_state.get("allowed_subservices", [])
-    if not allowed:
+    if not allowed or column not in df.columns:
         return df.iloc[0:0].copy()
-    out = df.copy()
-    return out[out[column].astype(str).str.strip().isin(allowed)].copy()
+    return df[df[column].astype(str).str.strip().isin(allowed)].copy()
 
 
 def labor_rate(tariffs, contract, level):
@@ -1150,8 +875,20 @@ def labor_rate(tariffs, contract, level):
         & tariffs["Livello_o_Tipo"].astype(str).str.strip().eq(str(level).strip())
         & tariffs["Attivo"].astype(str).str.upper().eq("SI")
     )
-    r = tariffs.loc[m, "Costo_Orario"]
-    return float(r.iloc[0]) if not r.empty else 0.0
+    data = tariffs.loc[m, "Costo_Orario"]
+    return float(data.iloc[0]) if not data.empty else 0.0
+
+
+def certification_scope(cert, subservice):
+    """Filtra la certificazione sul sottoservizio/comune selezionato."""
+    if cert is None or cert.empty:
+        return pd.DataFrame(columns=CERT_COLUMNS + ["Data Analisi"])
+    target = str(subservice).strip().lower()
+    comune = cert["Comuni"].astype(str).str.strip().str.lower()
+    centro = cert["Centro di Costo"].astype(str).str.strip().str.lower()
+    descrizione = cert["Descrizione"].astype(str).str.strip().str.lower()
+    mask = comune.eq(target) | centro.str.contains(re.escape(target), regex=True, na=False) | descrizione.str.contains(re.escape(target), regex=True, na=False)
+    return cert[mask].copy()
 
 
 def vehicle_rate(tariffs, kind):
@@ -1160,188 +897,94 @@ def vehicle_rate(tariffs, kind):
         & tariffs["Livello_o_Tipo"].astype(str).str.strip().eq(str(kind).strip())
         & tariffs["Attivo"].astype(str).str.upper().eq("SI")
     )
-    r = tariffs.loc[m, "Costo_Orario"]
-    return float(r.iloc[0]) if not r.empty else 0.0
+    data = tariffs.loc[m, "Costo_Orario"]
+    return float(data.iloc[0]) if not data.empty else 0.0
 
 
-def general_rate(tariffs, label, default=0.0):
+def general_rate(tariffs, name, default=0.0):
     m = (
         tariffs["Tipo"].astype(str).str.lower().eq("generale")
-        & tariffs["Livello_o_Tipo"].astype(str).str.strip().eq(label)
+        & tariffs["Livello_o_Tipo"].astype(str).str.strip().eq(name)
         & tariffs["Attivo"].astype(str).str.upper().eq("SI")
     )
-    r = tariffs.loc[m, "Costo_Orario"]
-    return float(r.iloc[0]) if not r.empty else default
+    data = tariffs.loc[m, "Costo_Orario"]
+    return float(data.iloc[0]) if not data.empty else default
 
 
-def current_datasets():
-    return (
-        read_users(),
-        read_operators(),
-        read_vehicles(),
-        read_tariffs(),
-        read_services(),
-        read_personnel(),
-        read_vehicle_detail(),
-    )
+def find_operator(operators, matricola, name):
+    if not operators.empty and matricola:
+        found = operators[operators["Matricola"].astype(str).str.strip().eq(str(matricola).strip())]
+        if not found.empty:
+            return found.iloc[0]
+    if not operators.empty and name:
+        target = re.sub(r"\s+", " ", str(name).strip().lower())
+        full = (operators["Nome"].astype(str) + " " + operators["Cognome"].astype(str)).str.replace(r"\s+", " ", regex=True).str.strip().str.lower()
+        found = operators[full.eq(target)]
+        if not found.empty:
+            return found.iloc[0]
+    return None
 
 
-# ============================================================
-# CERTIFICAZIONE
-# ============================================================
-
-CERT_ALIASES = {
-    "Data": ["data_turno", "giorno", "date", "data_servizio"],
-    "Matricola": ["matricola", "id_operatore", "codice_operatore", "employee_id"],
-    "Operatore": ["operatore", "dipendente", "addetto", "employee", "nome_operatore"],
-    "Ore": ["ore", "ore_lavorate", "hours", "durata", "ore_totali"],
-    "Targa": ["targa", "plate", "veicolo_targa"],
-    "Mezzo": ["mezzo", "veicolo", "vehicle"],
-    "Tipo Mezzo": ["tipo_mezzo", "categoria_mezzo", "classe_mezzo", "tipo_veicolo"],
-    "Risorsa": ["tipo_risorsa", "risorsa", "tipo"],
-    "Servizio": ["servizio", "categoria", "tipo_servizio"],
-    "Sottoservizio": ["sottoservizio", "sotto_servizio", "dettaglio", "commessa", "cantiere"],
-}
-
-
-def read_uploaded_file(uploaded):
-    name = uploaded.name.lower()
-    if name.endswith(".csv"):
-        raw = uploaded.getvalue()
-        text = None
-        for enc in ("utf-8-sig", "utf-8", "latin1"):
-            try:
-                text = raw.decode(enc)
-                break
-            except Exception:
-                pass
-        if text is None:
-            raise ValueError("Codifica CSV non riconosciuta.")
-        return pd.read_csv(io.StringIO(text), sep=None, engine="python"), None
-    if name.endswith((".xlsx", ".xls")):
-        return None, pd.ExcelFile(uploaded)
-    raise ValueError("Formato non supportato.")
-
-
-def score_headers(df):
-    norm = {clean_col(c) for c in df.columns}
-    candidates = set()
-    for target, aliases in CERT_ALIASES.items():
-        candidates.add(clean_col(target))
-        candidates.update(clean_col(a) for a in aliases)
-    return len(norm.intersection(candidates))
-
-
-def normalize_certification(df):
-    df = aliases_rename(df, CERT_ALIASES)
-    cols = ["Data", "Matricola", "Operatore", "Ore", "Targa", "Mezzo", "Tipo Mezzo", "Risorsa", "Servizio", "Sottoservizio"]
-    df = ensure(df, cols)[cols].copy()
-    for c in ["Matricola", "Operatore", "Targa", "Mezzo", "Tipo Mezzo", "Risorsa", "Servizio", "Sottoservizio"]:
-        df[c] = df[c].astype(str).str.strip()
-    df["Data"] = df["Data"].apply(parse_date)
-    df["Ore"] = df["Ore"].apply(parse_hours)
-
-    def infer(row):
-        r = row["Risorsa"].lower()
-        if r in {"personale", "operatore", "dipendente", "operatori"}:
-            return "Personale"
-        if r in {"mezzo", "mezzi", "veicolo", "veicoli"}:
-            return "Mezzo"
-        if row["Operatore"] or row["Matricola"]:
-            return "Personale"
-        if row["Targa"] or row["Mezzo"] or row["Tipo Mezzo"]:
-            return "Mezzo"
-        return ""
-
-    df["Risorsa"] = df.apply(infer, axis=1)
-    return df
-
-
-def load_certification(uploaded):
-    csv_df, excel = read_uploaded_file(uploaded)
-    if excel is None:
-        return normalize_certification(csv_df)
-
-    best = None
-    best_score = -1
-    for sheet in excel.sheet_names:
-        for header in [0, 1, 2]:
-            try:
-                sample = pd.read_excel(excel, sheet_name=sheet, header=header, nrows=30)
-                score = score_headers(sample)
-                if score > best_score:
-                    best = pd.read_excel(excel, sheet_name=sheet, header=header)
-                    best_score = score
-            except Exception:
-                pass
-    if best is None:
-        raise ValueError("Nessun foglio Excel leggibile.")
-    return normalize_certification(best)
-
+def find_vehicle(vehicles, targa):
+    if vehicles.empty or not targa:
+        return None
+    found = vehicles[vehicles["Targa"].astype(str).str.upper().str.strip().eq(str(targa).strip().upper())]
+    return found.iloc[0] if not found.empty else None
 
 # ============================================================
-# SESSIONE
+# SESSION / LOGIN
 # ============================================================
 
-SESSION_DEFAULTS = {
+for key, value in {
     "logged": False,
     "username": "",
     "nome": "",
     "ruolo": "",
-    "autorizzazioni": "",
     "allowed_subservices": [],
     "cert_df": pd.DataFrame(),
     "cert_file": "",
-}
-for key, default in SESSION_DEFAULTS.items():
+    "cert_import_id": "",
+}.items():
     if key not in st.session_state:
-        st.session_state[key] = default
-
-
-# ============================================================
-# LOGIN
-# ============================================================
+        st.session_state[key] = value
 
 if not st.session_state.logged:
     st.markdown(
-        """
-        <div class="login-card">
-            <div class="login-logo">♻️ CRISTOFORO</div>
-            <div class="login-sub">Control Room · Centro di Costo</div>
-        </div>
-        """,
+        '<div class="hero" style="max-width:470px;margin:8vh auto 18px;text-align:center;border-left:0;border-top:5px solid #087A3D"><div class="hero-kicker">CRISTOFORO</div><div class="hero-title">Control Room</div><div class="hero-copy">Controllo operativo, certificazione ore e centro di costo.</div></div>',
         unsafe_allow_html=True,
     )
-    c1, c2, c3 = st.columns([1, 1.5, 1])
+    c1, c2, c3 = st.columns([1, 1.35, 1])
     with c2:
         username = st.text_input("Username", placeholder="Inserisci username")
         password = st.text_input("Password", type="password", placeholder="Inserisci password")
         if st.button("Entra nella Control Room", type="primary", use_container_width=True):
             users = read_users()
-            match = users[
-                users["username"].astype(str).str.strip().eq(username.strip())
-                & users["password"].astype(str).str.strip().eq(password.strip())
-            ]
+            mask = users["username"].astype(str).str.strip().eq(username.strip()) & users["password"].astype(str).str.strip().eq(password.strip())
+            match = users[mask]
             if match.empty:
                 st.error("Username o password non corretti.")
             else:
                 row = match.iloc[0]
                 st.session_state.logged = True
-                st.session_state.username = row["username"]
-                st.session_state.nome = row["nome"]
-                st.session_state.ruolo = row["ruolo"]
-                st.session_state.autorizzazioni = row["autorizzazioni"]
+                st.session_state.username = str(row["username"])
+                st.session_state.nome = str(row["nome"])
+                st.session_state.ruolo = str(row["ruolo"])
                 st.session_state.allowed_subservices = split_access(row["autorizzazioni"])
                 st.rerun()
     st.stop()
 
-
 # ============================================================
-# DATASET GLOBALI
+# GLOBAL DATA
 # ============================================================
 
-users, operators, vehicles, tariffs, services, personnel_detail, vehicle_detail = current_datasets()
-
+users = read_users()
+operators = read_operators()
+vehicles = read_vehicles()
+tariffs = read_tariffs()
+services_df = read_services()
+personnel_detail = read_personnel()
+vehicle_detail = read_vehicle_detail()
+cert_rows = read_cert_rows()
 
 # ============================================================
 # SIDEBAR
@@ -1349,102 +992,75 @@ users, operators, vehicles, tariffs, services, personnel_detail, vehicle_detail 
 
 with st.sidebar:
     st.markdown(
-        """
-        <div class="brand-box">
-            <div class="brand-main">♻️ CRISTOFORO</div>
-            <div class="brand-sub">CONTROL ROOM · CENTRO DI COSTO</div>
-        </div>
-        """,
+        '<div class="brand-box"><div class="brand-main">♻️ CRISTOFORO</div><div class="brand-sub">CONTROL ROOM · CENTRO DI COSTO</div></div>',
         unsafe_allow_html=True,
     )
-    st.markdown('<div class="nav-note">Navigazione</div>', unsafe_allow_html=True)
-
+    st.markdown('<div class="nav-label">Navigazione</div>', unsafe_allow_html=True)
+    page_labels = {
+        "Dashboard": "◈  Dashboard",
+        "Consuntivazione": "＋  Nuovo consuntivo",
+        "Certificazioni": "✓  Certificazioni",
+        "Economico": "€  Centro di costo",
+    }
     pages = ["Dashboard", "Consuntivazione", "Certificazioni", "Economico"]
     if is_admin():
         pages += ["Anagrafiche", "Tariffari & Contratti", "Accessi"]
-    NAV_LABELS = {
-        "Dashboard": "◈  Dashboard",
-        "Consuntivazione": "＋  Consuntivazione",
-        "Certificazioni": "✓  Certificazioni",
-        "Economico": "€  Economico",
-        "Anagrafiche": "♟  Anagrafiche",
-        "Tariffari & Contratti": "▤  Tariffari & Contratti",
-        "Accessi": "◎  Accessi",
-    }
-    nav_options = [NAV_LABELS.get(p, p) for p in pages]
-    selected_nav = st.radio("Menu", nav_options, label_visibility="collapsed")
-    page = next((p for p in pages if NAV_LABELS.get(p, p) == selected_nav), selected_nav)
+    selected = st.radio("Menu", [page_labels.get(p, p) for p in pages], label_visibility="collapsed")
+    page = next(p for p in pages if page_labels.get(p, p) == selected)
 
     st.markdown("---")
-    access_meta = "Accesso · Direzione" if is_admin() else f"Sottoservizi · {len(st.session_state.allowed_subservices)}"
+    access_text = "Direzione" if is_admin() else f"Accesso a {len(st.session_state.allowed_subservices)} sottoservizi"
     st.markdown(
-        f"""
-        <div class="sidebar-user-card">
-            <div class="sidebar-user-name">● {st.session_state.nome}</div>
-            <div class="sidebar-user-meta">Ruolo · {st.session_state.ruolo}</div>
-            <div class="sidebar-user-meta">{access_meta}</div>
-        </div>
-        """,
+        f'<div class="sidebar-user"><div class="sidebar-user-name">● {st.session_state.nome}</div><div class="sidebar-user-meta">Ruolo · {st.session_state.ruolo}</div><div class="sidebar-user-meta">{access_text}</div></div>',
         unsafe_allow_html=True,
     )
     st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
     if st.button("↪  Esci", use_container_width=True):
-        for key in ["logged", "username", "nome", "ruolo", "autorizzazioni", "allowed_subservices"]:
+        for key in ["logged", "username", "nome", "ruolo", "allowed_subservices", "cert_df", "cert_file", "cert_import_id"]:
             st.session_state.pop(key, None)
         st.rerun()
-
 
 # ============================================================
 # TOPBAR
 # ============================================================
 
-META = {
+meta = {
     "Dashboard": ("Control Room", "La cabina di regia operativa ed economica"),
     "Consuntivazione": ("Nuovo consuntivo", "Servizio → sottoservizio → certificazione → costo"),
-    "Certificazioni": ("Certificazioni", "Importa il file ore ufficiale e controlla i dati riconosciuti"),
-    "Economico": ("Centro di costo", "Leggi margine, personale, mezzi e costo per sottoservizio"),
+    "Certificazioni": ("Certificazioni", "Importa la certificazione reale e verifica operatori e mezzi"),
+    "Economico": ("Centro di costo", "Ricavi, costi, ore e margine per servizio e sottoservizio"),
     "Anagrafiche": ("Anagrafiche", "Operatori e mezzi"),
-    "Tariffari & Contratti": ("Tariffari & Contratti", "Livelli contrattuali, costi orari e mezzi"),
+    "Tariffari & Contratti": ("Tariffari & Contratti", "Livelli contrattuali, costi del personale e costi mezzi"),
     "Accessi": ("Accessi", "Utenti e autorizzazioni"),
 }
-
-title, subtitle = META[page]
+title, subtitle = meta[page]
 st.markdown(
-    f"""
-    <div class="topbar">
-        <div>
-            <div class="title">{title}</div>
-            <div class="subtitle">{subtitle}</div>
-        </div>
-        <div class="user-pill">● {st.session_state.nome}</div>
-    </div>
-    """,
+    f'<div class="topbar"><div><div class="title">{title}</div><div class="subtitle">{subtitle}</div></div><div class="user-pill">● {st.session_state.nome}</div></div>',
     unsafe_allow_html=True,
 )
-
 
 # ============================================================
 # DASHBOARD
 # ============================================================
 
 if page == "Dashboard":
-    df = authorized_services(services)
-
-    # Filtri dashboard: prima servizio principale, poi sottoservizio.
-    f1, f2, f3 = st.columns([1.2, 1.4, 1])
-    with f1:
-        service_filter = st.selectbox("Servizio principale", ["Tutti"] + list(SERVICE_TREE.keys()))
-    with f2:
+    df = authorized(services_df)
+    st.markdown(
+        '<div class="section-title">1. Cosa vuoi controllare?</div>',
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3 = st.columns([1, 1.3, 1])
+    with c1:
+        service_filter = st.selectbox("Servizio", ["Tutti"] + list(SERVICE_TREE.keys()))
+    with c2:
         if service_filter == "Tutti":
-            sub_options = ["Tutti"] + sorted(st.session_state.allowed_subservices if not is_admin() else ALL_SUBSERVICES)
+            subs = ALL_SUBSERVICES.copy()
         else:
-            values = SERVICE_TREE[service_filter]
-            if not is_admin():
-                values = [x for x in values if x in st.session_state.allowed_subservices]
-            sub_options = ["Tutti"] + values
-        sub_filter = st.selectbox("Sottoservizio", sub_options)
-    with f3:
+            subs = SERVICE_TREE[service_filter].copy()
+        if not is_admin():
+            subs = [x for x in subs if x in st.session_state.allowed_subservices]
+        sub_filter = st.selectbox("Sottoservizio", ["Tutti"] + subs)
+    with c3:
         period = st.selectbox("Periodo", ["Tutto", "Ultimi 30 giorni", "Ultimi 90 giorni", "Anno corrente"])
 
     if service_filter != "Tutti":
@@ -1453,416 +1069,393 @@ if page == "Dashboard":
         df = df[df["Sottoservizio"].astype(str).eq(sub_filter)].copy()
     if period != "Tutto":
         today = pd.Timestamp.today().normalize()
-        if period == "Ultimi 30 giorni":
-            start = today - pd.Timedelta(days=30)
-        elif period == "Ultimi 90 giorni":
-            start = today - pd.Timedelta(days=90)
-        else:
-            start = pd.Timestamp(today.year, 1, 1)
+        start = today - pd.Timedelta(days=30 if period == "Ultimi 30 giorni" else 90) if period != "Anno corrente" else pd.Timestamp(today.year, 1, 1)
         df = df[df["Data"].isna() | (df["Data"] >= start)].copy()
 
-    current_label = sub_filter if sub_filter != "Tutti" else (service_filter if service_filter != "Tutti" else "Tutte le attività")
-
+    label = sub_filter if sub_filter != "Tutti" else (service_filter if service_filter != "Tutti" else "Tutte le attività")
     st.markdown(
-        f"""
-        <div class="hero">
-            <div class="hero-kicker">Dashboard operativa</div>
-            <div class="hero-title">{current_label}</div>
-            <div class="hero-copy">Ricavi, costi, ore certificate e margine in una sola vista. Il verde indica performance positiva, l'ambra attenzione e il rosso criticità.</div>
-            <div class="hero-stat">● Dati consuntivati: {len(df)} record · Ultimo aggiornamento alla lettura dei CSV</div>
-        </div>
-        """,
+        f'<div class="hero"><div class="hero-kicker">Dashboard operativa</div><div class="hero-title">{label}</div><div class="hero-copy">La selezione guida tutti i KPI, le ore certificate e il centro di costo. Nessun dato viene mescolato tra servizi differenti.</div><div class="hero-stat">● {len(df)} consuntivi · filtri applicati in tempo reale</div></div>',
         unsafe_allow_html=True,
     )
 
     revenue = safe_sum(df["Ricavi"] if "Ricavi" in df.columns else None)
-    cost = safe_sum(df["Costo Totale"] if "Costo Totale" in df.columns else None)
+    costs = safe_sum(df["Costo Totale"] if "Costo Totale" in df.columns else None)
     margin = safe_sum(df["Margine"] if "Margine" in df.columns else None)
-    margin_pct = (margin / revenue * 100) if revenue else 0.0
+    margin_pct = margin / revenue * 100 if revenue else 0
+    labor_hours = safe_sum(df["Ore Uomo"] if "Ore Uomo" in df.columns else None)
+    vehicle_hours = safe_sum(df["Ore Mezzi"] if "Ore Mezzi" in df.columns else None)
+    tonnes = safe_sum(df["Tonnellate"] if "Tonnellate" in df.columns else None)
 
-    # Le ore nella Control Tower seguono gli stessi filtri della dashboard.
-    dashboard_personnel = authorized_services(personnel_detail)
-    dashboard_vehicles = authorized_services(vehicle_detail)
-    if service_filter != "Tutti":
-        dashboard_personnel = dashboard_personnel[dashboard_personnel["Servizio"].astype(str).eq(service_filter)].copy() if not dashboard_personnel.empty else dashboard_personnel
-        dashboard_vehicles = dashboard_vehicles[dashboard_vehicles["Servizio"].astype(str).eq(service_filter)].copy() if not dashboard_vehicles.empty else dashboard_vehicles
-    if sub_filter != "Tutti":
-        dashboard_personnel = dashboard_personnel[dashboard_personnel["Sottoservizio"].astype(str).eq(sub_filter)].copy() if not dashboard_personnel.empty else dashboard_personnel
-        dashboard_vehicles = dashboard_vehicles[dashboard_vehicles["Sottoservizio"].astype(str).eq(sub_filter)].copy() if not dashboard_vehicles.empty else dashboard_vehicles
-    if period != "Tutto":
-        date_start = start
-        if not dashboard_personnel.empty:
-            dashboard_personnel = dashboard_personnel[dashboard_personnel["Data"].isna() | (dashboard_personnel["Data"] >= date_start)].copy()
-        if not dashboard_vehicles.empty:
-            dashboard_vehicles = dashboard_vehicles[dashboard_vehicles["Data"].isna() | (dashboard_vehicles["Data"] >= date_start)].copy()
-
-    labor_hours = safe_sum(dashboard_personnel["Ore"] if not dashboard_personnel.empty and "Ore" in dashboard_personnel.columns else None)
-    vehicle_hours = safe_sum(dashboard_vehicles["Ore"] if not dashboard_vehicles.empty and "Ore" in dashboard_vehicles.columns else None)
-    margin = safe_value(margin)
-    margin_pct = safe_value(margin_pct)
-
-    kcols = st.columns(6)
-    margin_card_class = "teal" if safe_value(margin) >= 0 else "red"
     cards = [
-        (kcols[0], "Ricavi", euro(revenue), "fatturato", ""),
-        (kcols[1], "Costo totale", euro(cost), "personale + mezzi + indiretti", "blue"),
-        (kcols[2], "Margine", euro(margin), percent(margin_pct), margin_card_class),
-        (kcols[3], "Margine %", percent(margin_pct), "sul ricavo", "purple"),
-        (kcols[4], "Ore uomo", f"{num(labor_hours)} h", "da certificazione", "amber"),
-        (kcols[5], "Ore mezzi", f"{num(vehicle_hours)} h", "da certificazione", ""),
+        ("Ricavi", euro(revenue), "fatturato", ""),
+        ("Costo totale", euro(costs), "personale + mezzi + indiretti", "blue"),
+        ("Margine", euro(margin), pct(margin_pct), "teal" if margin >= 0 else "red"),
+        ("Margine %", pct(margin_pct), "sul ricavo", "purple"),
+        ("Ore uomo", f"{num(labor_hours)} h", "certificazione", "amber"),
+        ("Ore mezzi", f"{num(vehicle_hours)} h", "certificazione", ""),
     ]
-    for col, label, value, note, cls in cards:
+    cols = st.columns(6)
+    for col, (label_kpi, value, note, cls) in zip(cols, cards):
         with col:
-            st.markdown(
-                f"""
-                <div class="kpi {cls}">
-                    <div class="kpi-strip"></div>
-                    <div class="kpi-label">{label}</div>
-                    <div class="kpi-value">{value}</div>
-                    <div class="kpi-note">{note}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.markdown(f'<div class="kpi {cls}"><div class="kpi-strip"></div><div class="kpi-label">{label_kpi}</div><div class="kpi-value">{value}</div><div class="kpi-note">{note}</div></div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title">Lettura della giornata economica</div>', unsafe_allow_html=True)
-    left, right = st.columns([1.55, 1])
+    st.markdown('<div class="section-title">2. Control Tower</div>', unsafe_allow_html=True)
+    s_label, s_text, s_class = status_for_margin(margin, margin_pct, not df.empty)
+    total_hours = labor_hours + vehicle_hours
+    cost_hour = costs / total_hours if total_hours else 0
+    cost_ton = costs / tonnes if tonnes else 0
+    t1, t2, t3, t4 = st.columns(4)
+    with t1:
+        st.markdown(f'<div class="panel"><div class="panel-title">Stato economico</div><div style="margin-top:13px"><span class="status {s_class}">{s_label}</span></div><div class="panel-sub">{s_text}</div></div>', unsafe_allow_html=True)
+    with t2:
+        st.markdown(f'<div class="panel"><div class="panel-title">Ore certificate</div><div class="kpi-value" style="font-size:25px;margin-top:10px">{num(total_hours)} h</div><div class="panel-sub">Uomo {num(labor_hours)} h · Mezzi {num(vehicle_hours)} h</div></div>', unsafe_allow_html=True)
+    with t3:
+        st.markdown(f'<div class="panel"><div class="panel-title">Costo medio / ora</div><div class="kpi-value" style="font-size:25px;margin-top:10px">{euro(cost_hour)}</div><div class="panel-sub">costo totale / ore certificate</div></div>', unsafe_allow_html=True)
+    with t4:
+        st.markdown(f'<div class="panel"><div class="panel-title">Costo / tonnellata</div><div class="kpi-value" style="font-size:25px;margin-top:10px">{euro(cost_ton)}</div><div class="panel-sub">{num(tonnes)} tonnellate registrate</div></div>', unsafe_allow_html=True)
 
+    st.markdown('<div class="section-title">3. Andamento e composizione</div>', unsafe_allow_html=True)
+    left, right = st.columns([1.5, 1])
     with left:
-        st.markdown('<div class="panel"><div class="panel-title">Andamento Ricavi / Costi / Margine</div><div class="panel-sub">Il grafico segue il periodo selezionato</div></div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel"><div class="panel-title">Ricavi / Costi / Margine</div><div class="panel-sub">Solo i dati della selezione corrente</div></div>', unsafe_allow_html=True)
         if not df.empty and df["Data"].notna().any():
             trend = df.dropna(subset=["Data"]).groupby("Data")[["Ricavi", "Costo Totale", "Margine"]].sum().sort_index()
-            st.area_chart(trend)
+            st.line_chart(trend)
         else:
-            st.info("Inserisci almeno un consuntivo con data per visualizzare l'andamento.")
-
+            st.info("Servono consuntivi con data per mostrare il trend.")
     with right:
-        st.markdown('<div class="panel"><div class="panel-title">Composizione costi</div><div class="panel-sub">Peso delle principali componenti</div></div>', unsafe_allow_html=True)
-        cost_mix = pd.Series({
+        st.markdown('<div class="panel"><div class="panel-title">Composizione costi</div><div class="panel-sub">Personale, mezzi e costi indiretti</div></div>', unsafe_allow_html=True)
+        mix = pd.Series({
             "Personale": safe_sum(df["Costo Personale"] if "Costo Personale" in df.columns else None),
             "Mezzi": safe_sum(df["Costo Mezzi"] if "Costo Mezzi" in df.columns else None),
             "Overhead": safe_sum(df["Overhead"] if "Overhead" in df.columns else None),
         })
-        st.bar_chart(cost_mix)
+        st.bar_chart(mix)
 
-    st.markdown('<div class="section-title">Semaforo operativo</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">4. Semaforo servizi</div>', unsafe_allow_html=True)
     st.markdown('<div class="panel">', unsafe_allow_html=True)
     for service_name, subs in SERVICE_TREE.items():
         visible = subs if is_admin() else [x for x in subs if x in st.session_state.allowed_subservices]
         if not visible:
             continue
-        pills = []
+        html = f'<div style="padding:7px 0"><strong style="color:#16231D">{service_name}</strong><div style="margin-top:4px">'
         for sub in visible:
-            d = df[df["Sottoservizio"].eq(sub)].copy()
+            d = df[df["Sottoservizio"].eq(sub)]
             m = safe_sum(d["Margine"] if not d.empty else None)
             r = safe_sum(d["Ricavi"] if not d.empty else None)
-            p = (m / r * 100) if r else 0.0
-            status_label, status_text, status_class = margin_status(m, p, not d.empty)
-            icon = {"ok": "●", "warn": "▲", "bad": "■"}.get(status_class, "●")
-            if d.empty:
-                label = f"{icon} {sub} · nessun dato"
-            else:
-                label = f"{icon} {sub} · {euro(m)} · {percent(p)}"
-            pill_class = "on" if status_class == "ok" else status_class
-            pills.append(f'<span class="pill {pill_class}">{label}</span>')
-        st.markdown(
-            f'<div class="matrix-row"><div class="matrix-name">{service_name}</div>{"".join(pills)}</div>',
-            unsafe_allow_html=True,
-        )
+            p = m / r * 100 if r else 0
+            _, _, klass = status_for_margin(m, p, not d.empty)
+            label = "NESSUN DATO" if d.empty else f"{euro(m)} · {pct(p)}"
+            html += f'<span class="pill {klass}">{sub} · {label}</span>'
+        html += '</div></div>'
+        st.markdown(html, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title">Control Tower</div>', unsafe_allow_html=True)
-    total_hours = safe_value(labor_hours) + safe_value(vehicle_hours)
-    cost_per_hour = cost / total_hours if total_hours else 0.0
-    tonnes = safe_sum(df["Tonnellate"] if "Tonnellate" in df.columns else None)
-    cost_per_ton = cost / tonnes if tonnes else 0.0
-    status_label, status_text, status_class = margin_status(margin, margin_pct, not df.empty)
-
-    t1, t2, t3, t4 = st.columns(4)
-    with t1:
-        st.markdown(
-            f'<div class="panel"><div class="panel-title">Stato economico</div><div class="panel-sub">Indicatore automatico</div><div style="margin-top:14px"><span class="status {status_class}">{status_label}</span></div><div style="font-size:12px;color:#67736c;margin-top:10px">{status_text}</div></div>',
-            unsafe_allow_html=True,
-        )
-    with t2:
-        st.markdown(
-            f'<div class="panel"><div class="panel-title">Ore certificate</div><div class="panel-sub">Personale + mezzi</div><div class="kpi-value" style="font-size:25px;margin-top:12px">{num(total_hours)} h</div><div class="kpi-note">Uomo {num(labor_hours)} h · Mezzi {num(vehicle_hours)} h</div></div>',
-            unsafe_allow_html=True,
-        )
-    with t3:
-        st.markdown(
-            f'<div class="panel"><div class="panel-title">Costo / ora</div><div class="panel-sub">Totale / ore certificate</div><div class="kpi-value" style="font-size:25px;margin-top:12px">{euro(cost_per_hour)}</div><div class="kpi-note">Indicatore operativo</div></div>',
-            unsafe_allow_html=True,
-        )
-    with t4:
-        st.markdown(
-            f'<div class="panel"><div class="panel-title">Costo / tonnellata</div><div class="panel-sub">Quando è presente il tonnellaggio</div><div class="kpi-value" style="font-size:25px;margin-top:12px">{euro(cost_per_ton)}</div><div class="kpi-note">Tonnellate: {num(tonnes, 1)}</div></div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown('<div class="section-title">Flusso operativo</div>', unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4)
-    steps = [
-        (c1, "01", "Servizio", "Seleziona il servizio principale."),
-        (c2, "02", "Sottoservizio", "Il sistema mostra solo i sottoservizi compatibili."),
-        (c3, "03", "Certificazione", "Importa ore operatori e mezzi."),
-        (c4, "04", "Costo / Margine", "Applica contratti, livelli, mezzi e tariffe."),
-    ]
-    for col, n, title_step, text_step in steps:
-        with col:
-            st.markdown(f'<div class="step"><div class="step-num">Passo {n}</div><div class="step-title">{title_step}</div><div class="step-text">{text_step}</div></div>', unsafe_allow_html=True)
-
-
 # ============================================================
-# CERTIFICAZIONI
+# CERTIFICATIONS
 # ============================================================
 
 elif page == "Certificazioni":
-    st.markdown('<div class="section-title">Import certificazione ore</div>', unsafe_allow_html=True)
-    st.info("Carica il file ufficiale della certificazione. L'app prova a riconoscere automaticamente operatori, matricole, ore, targhe, mezzi e tipo risorsa.")
+    st.markdown('<div class="section-title">1. Importa il file ufficiale</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel"><div class="panel-title">Struttura riconosciuta</div><div class="panel-sub">ID · Codice · Descrizione · Comuni · Centro di Costo · Pianificazione · Svolgimento · Durata · Operatori · Targa · Attrezzatura · Note · Stato</div></div>', unsafe_allow_html=True)
 
-    uploaded = st.file_uploader("File certificazione", type=["csv", "xlsx", "xls"])
+    uploaded = st.file_uploader("Certificazione ore mezzi / operatori", type=["csv", "xlsx", "xls"])
     if uploaded:
         try:
-            cert = load_certification(uploaded)
+            raw = load_uploaded_raw(uploaded)
+            cert = normalize_certification(raw)
             st.session_state.cert_df = cert
             st.session_state.cert_file = uploaded.name
-            st.success(f"Certificazione letta: {len(cert)} righe · {cert['Risorsa'].value_counts().to_dict()}")
+            st.session_state.cert_import_id = "IMP-" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+            st.success(f"File letto correttamente: {len(cert)} righe.")
         except Exception as exc:
-            st.error(f"Errore nella lettura della certificazione: {exc}")
+            st.error(f"Errore nella lettura del file: {exc}")
 
     cert = st.session_state.cert_df.copy()
     if not cert.empty:
+        total = safe_sum(cert["Durata"])
+        rows_with_operator = int(cert["Operatori"].astype(str).str.strip().ne("").sum())
+        rows_with_plate = int(cert["Targa"].astype(str).str.strip().ne("").sum())
+        certified = int(cert["Stato"].astype(str).str.lower().eq("certificato").sum())
         c1, c2, c3, c4 = st.columns(4)
-        with c1: st.metric("File", st.session_state.cert_file or "-")
-        with c2: st.metric("Righe", len(cert))
-        with c3: st.metric("Ore", f"{num(safe_sum(cert['Ore']))} h")
-        with c4: st.metric("Righe mezzi", int((cert["Risorsa"] == "Mezzo").sum()))
+        c1.metric("Righe", len(cert))
+        c2.metric("Durata totale", f"{num(total)} h")
+        c3.metric("Righe con operatori", rows_with_operator)
+        c4.metric("Righe con targa", rows_with_plate)
 
-        st.markdown('<div class="section-title">Anteprima riconoscimento</div>', unsafe_allow_html=True)
-        st.dataframe(cert, use_container_width=True, hide_index=True)
+        st.markdown('<div class="section-title">2. Verifica della certificazione</div>', unsafe_allow_html=True)
+        # Mostra esattamente la struttura operativa fornita dall'utente.
+        view = cert.copy()
+        view["Data Pianificazione"] = pd.to_datetime(view["Data Pianificazione"], errors="coerce").dt.strftime("%d/%m/%Y")
+        view["Data Svolgimento"] = pd.to_datetime(view["Data Svolgimento"], errors="coerce").dt.strftime("%d/%m/%Y")
+        st.dataframe(view[CERT_COLUMNS], use_container_width=True, hide_index=True)
+
+        # Controlli automatici
+        missing_state = int(cert["Stato"].astype(str).str.lower().isin(["", "da verificare", "nan"]).sum())
+        missing_duration = int(cert["Durata"].apply(parse_hours).le(0).sum())
+        c1, c2, c3 = st.columns(3)
+        c1.markdown(f'<div class="panel"><div class="panel-title">Stato certificazione</div><div style="margin-top:10px"><span class="status {"ok" if missing_state == 0 else "warn"}">{"OK" if missing_state == 0 else f"{missing_state} da verificare"}</span></div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="panel"><div class="panel-title">Durate</div><div style="margin-top:10px"><span class="status {"ok" if missing_duration == 0 else "warn"}">{"OK" if missing_duration == 0 else f"{missing_duration} senza durata"}</span></div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="panel"><div class="panel-title">Righe certificate</div><div class="kpi-value" style="font-size:23px;margin-top:10px">{certified}/{len(cert)}</div></div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="section-title">3. Salvataggio importazione</div>', unsafe_allow_html=True)
+        if st.button("Registra e archivia certificazione", type="primary", use_container_width=True):
+            import_row = pd.DataFrame([{
+                "ID Import": st.session_state.cert_import_id,
+                "Data Import": datetime.now(),
+                "File": st.session_state.cert_file,
+                "Righe": len(cert),
+                "Ore": total,
+                "Stato": "OK" if missing_state == 0 and missing_duration == 0 else "DA VERIFICARE",
+                "Operatore": st.session_state.nome,
+            }])
+            imports = read_csv_flexible(FILES["certifications"])
+            save_csv(pd.concat([imports, import_row], ignore_index=True), FILES["certifications"])
+            rows = cert.copy()
+            rows["ID Import"] = st.session_state.cert_import_id
+            old = read_cert_rows()
+            save_csv(pd.concat([old, rows], ignore_index=True), FILES["cert_rows"])
+            st.success("Certificazione archiviata. Ora puoi aprire Nuovo Consuntivo.")
 
         st.download_button(
-            "Scarica certificazione normalizzata",
-            data=cert.to_csv(index=False, encoding="utf-8-sig"),
+            "Scarica copia normalizzata",
+            data=view[CERT_COLUMNS].to_csv(index=False, encoding="utf-8-sig"),
             file_name="certificazione_normalizzata.csv",
             mime="text/csv",
             use_container_width=True,
         )
-
-        if st.button("Registra importazione", type="primary"):
-            imports = read_csv_flexible(FILES["certifications"])
-            row = pd.DataFrame([{
-                "ID Import": "IMP-" + datetime.now().strftime("%Y%m%d%H%M%S%f"),
-                "Data Import": datetime.now(),
-                "File": st.session_state.cert_file,
-                "Righe": len(cert),
-                "Esito": "OK",
-                "Operatore": st.session_state.nome,
-            }])
-            save_csv(pd.concat([imports, row], ignore_index=True), FILES["certifications"])
-            st.success("Importazione registrata.")
-
 
 # ============================================================
 # CONSUNTIVAZIONE
 # ============================================================
 
 elif page == "Consuntivazione":
-    st.markdown('<div class="section-title">Step 1 · Dove stiamo consuntivando?</div>', unsafe_allow_html=True)
-    a, b, c = st.columns([1, 1.2, 1])
-    with a:
-        service = st.selectbox("Servizio principale", list(SERVICE_TREE.keys()))
-    with b:
-        choices = SERVICE_TREE[service]
+    st.markdown('<div class="section-title">1. Definisci il servizio</div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 1.2, 1])
+    with c1:
+        service = st.selectbox("Servizio", list(SERVICE_TREE.keys()))
+    with c2:
+        options = SERVICE_TREE[service].copy()
         if not is_admin():
-            choices = [x for x in choices if x in st.session_state.allowed_subservices]
-        if not choices:
-            st.error("Nessun sottoservizio autorizzato per questo servizio.")
+            options = [x for x in options if x in st.session_state.allowed_subservices]
+        if not options:
+            st.error("Nessun sottoservizio autorizzato.")
             st.stop()
-        subservice = st.selectbox("Sottoservizio", choices)
-    with c:
-        service_date = st.date_input("Data servizio", value=datetime.today().date())
+        subservice = st.selectbox("Sottoservizio", options)
+    with c3:
+        service_date = st.date_input("Data centro di costo", value=datetime.today().date())
 
-    d1, d2 = st.columns([1, 2])
-    with d1:
-        tonnage = st.number_input("Tonnellate", min_value=0.0, step=0.1, value=0.0)
-    with d2:
-        revenue = st.number_input("Ricavo", min_value=0.0, step=50.0, value=0.0)
-        if revenue == 0 and tonnage > 0:
-            revenue = tonnage * general_rate(tariffs, "Tariffa tonnellata", 0.0)
-            st.caption(f"Ricavo calcolato a tariffa tonnellata: {euro(revenue)}")
+    st.markdown(
+        f'<div class="panel"><div class="panel-title">Centro di Costo</div><div class="kpi-value" style="font-size:22px;margin-top:10px">{centro_costo(service, subservice)}</div><div class="panel-sub">Il centro di costo viene generato automaticamente dalla coppia Servizio + Sottoservizio.</div></div>',
+        unsafe_allow_html=True,
+    )
 
-    st.markdown('<div class="section-title">Step 2 · Certificazione</div>', unsafe_allow_html=True)
-    if st.session_state.cert_df.empty:
-        st.warning("Nessuna certificazione caricata. Puoi caricarla nella sezione Certificazioni oppure inserire manualmente le risorse qui sotto.")
-        cert = pd.DataFrame()
+    st.markdown('<div class="section-title">2. Collega la certificazione</div>', unsafe_allow_html=True)
+    raw_cert = st.session_state.cert_df.copy()
+    cert = certification_scope(raw_cert, subservice)
+    if raw_cert.empty:
+        st.warning("Non c'è una certificazione attiva. Vai in Certificazioni per caricare il file ufficiale.")
+    elif cert.empty:
+        st.error(f"La certificazione {st.session_state.cert_file} non contiene righe riconducibili al sottoservizio **{subservice}**. Controlla la colonna Comuni/Centro di Costo.")
     else:
-        cert = st.session_state.cert_df.copy()
-        st.success(f"Certificazione attiva: {st.session_state.cert_file} · {len(cert)} righe")
+        st.success(f"Certificazione attiva: {st.session_state.cert_file} · {len(cert)} righe riferite a {subservice}")
+        with st.expander("Vedi righe certificate associate al sottoservizio"):
+            st.dataframe(cert[CERT_COLUMNS], use_container_width=True, hide_index=True)
+
+    tonnage = st.number_input("Tonnellate", min_value=0.0, step=0.1, value=0.0)
+    revenue = st.number_input("Ricavo", min_value=0.0, step=50.0, value=0.0)
+    if revenue == 0 and tonnage > 0:
+        revenue = tonnage * general_rate(tariffs, "Tariffa tonnellata", 0.0)
+        st.caption(f"Ricavo automatico dalla tariffa tonnellata: {euro(revenue)}")
 
     # --------------------------------------------------------
-    # PERSONALE
+    # ESPANSIONE CERTIFICAZIONE -> PERSONALE
     # --------------------------------------------------------
-    st.markdown('<div class="section-title">Step 3 · Ore operatori</div>', unsafe_allow_html=True)
-
-    if not cert.empty and (cert["Risorsa"] == "Personale").any():
-        personnel_rows = cert[cert["Risorsa"] == "Personale"][
-            ["Matricola", "Operatore", "Ore"]
-        ].copy()
-        personnel_rows["Contratto"] = ""
-        personnel_rows["Livello"] = ""
-
-        # Recupero automatico dal registro operatori.
-        for idx, row in personnel_rows.iterrows():
-            found = pd.DataFrame()
-            if row["Matricola"]:
-                found = operators[operators["Matricola"].astype(str).eq(str(row["Matricola"]))]
-            if found.empty and row["Operatore"]:
-                full = found
-                name = str(row["Operatore"]).strip().lower()
-                full_name = (operators["Nome"].astype(str) + " " + operators["Cognome"].astype(str)).str.strip().str.lower()
-                found = operators[full_name.eq(name)]
-            if not found.empty:
-                personnel_rows.loc[idx, "Contratto"] = found.iloc[0]["Contratto"]
-                personnel_rows.loc[idx, "Livello"] = found.iloc[0]["Livello"]
+    st.markdown('<div class="section-title">3. Personale certificato</div>', unsafe_allow_html=True)
+    if not cert.empty:
+        p_rows = []
+        for _, row in cert.iterrows():
+            people = split_people(row["Operatori"])
+            if not people:
+                continue
+            for person in people:
+                found = find_operator(operators, "", person)
+                matricola = "" if found is None else str(found["Matricola"])
+                contract = "" if found is None else str(found["Contratto"])
+                level = "" if found is None else str(found["Livello"])
+                status = "MATCH ANAGRAFICA" if found is not None else "DA ASSEGNARE"
+                p_rows.append({
+                    "Certificazione ID": row["ID"],
+                    "Operatore": person,
+                    "Matricola": matricola,
+                    "Contratto": contract,
+                    "Livello": level,
+                    "Ore": parse_hours(row["Durata"]),
+                    "Data": row["Data Analisi"],
+                    "Stato": status,
+                })
+        personnel_rows = pd.DataFrame(p_rows)
     else:
-        default_contract = list(CONTRACTS.keys())[0]
         personnel_rows = pd.DataFrame([{
-            "Matricola": "",
+            "Certificazione ID": "",
             "Operatore": "",
-            "Contratto": default_contract,
-            "Livello": CONTRACTS[default_contract][0],
+            "Matricola": "",
+            "Contratto": list(CONTRACTS.keys())[0],
+            "Livello": CONTRACTS[list(CONTRACTS.keys())[0]][0],
             "Ore": 0.0,
+            "Data": pd.Timestamp(service_date),
+            "Stato": "MANUALE",
         }])
 
+    if personnel_rows.empty:
+        personnel_rows = pd.DataFrame([{
+            "Certificazione ID": "",
+            "Operatore": "",
+            "Matricola": "",
+            "Contratto": list(CONTRACTS.keys())[0],
+            "Livello": CONTRACTS[list(CONTRACTS.keys())[0]][0],
+            "Ore": 0.0,
+            "Data": pd.Timestamp(service_date),
+            "Stato": "MANUALE",
+        }])
+
+    # Only fields required to edit contracts/levels/hours.
+    personnel_editor = personnel_rows.copy()
+    personnel_editor["Data"] = pd.to_datetime(personnel_editor["Data"], errors="coerce").dt.strftime("%d/%m/%Y")
     edited_personnel = st.data_editor(
-        personnel_rows.reset_index(drop=True),
+        personnel_editor,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         column_config={
             "Contratto": st.column_config.SelectboxColumn("Contratto", options=list(CONTRACTS.keys()), required=True),
-            "Livello": st.column_config.SelectboxColumn("Livello", options=sorted({x for y in CONTRACTS.values() for x in y})),
-            "Ore": st.column_config.NumberColumn("Ore", min_value=0.0, step=0.25, format="%.2f"),
+            "Livello": st.column_config.TextColumn("Livello"),
+            "Ore": st.column_config.NumberColumn("Ore certificate", min_value=0.0, step=0.25),
+            "Stato": st.column_config.TextColumn("Stato", disabled=True),
         },
-        key="personnel_v4",
+        key="v6_personnel_editor",
     )
 
-    person_calc = edited_personnel.copy()
-    person_calc["Costo Orario"] = 0.0
-    person_calc["Costo Totale"] = 0.0
-    invalid_contracts = []
-    zero_rates = []
-    for idx, row in person_calc.iterrows():
+    # Il livello deve essere coerente con il contratto.
+    contract_options = list(CONTRACTS.keys())
+    labor_rows = []
+    for _, row in edited_personnel.iterrows():
         contract = str(row.get("Contratto", "")).strip()
         level = str(row.get("Livello", "")).strip()
+        hours = parse_hours(row.get("Ore", 0))
         rate = labor_rate(tariffs, contract, level)
-        if contract not in CONTRACTS:
-            invalid_contracts.append(idx + 1)
-        elif level not in CONTRACTS[contract]:
-            invalid_contracts.append(idx + 1)
-        if rate <= 0 and contract in CONTRACTS and level in CONTRACTS[contract]:
-            zero_rates.append(f"{contract} / {level}")
-        person_calc.loc[idx, "Costo Orario"] = rate
-        person_calc.loc[idx, "Costo Totale"] = parse_hours(row.get("Ore", 0)) * rate
+        valid = contract in contract_options and level in CONTRACTS.get(contract, [])
+        labor_rows.append({**row.to_dict(), "Costo Orario": rate, "Costo Totale": hours * rate, "Validita": "OK" if valid and rate > 0 else ("COSTO DA CONFIGURARE" if valid else "LIVELLO NON VALIDO")})
+    labor_calc = pd.DataFrame(labor_rows)
 
-    if invalid_contracts:
-        st.error("Controlla il contratto/livello nelle righe: " + ", ".join(map(str, invalid_contracts)))
-    if zero_rates:
-        st.warning("Costo orario non configurato per: " + ", ".join(sorted(set(zero_rates))) + ". Configuralo in Tariffari & Contratti.")
+    invalid_levels = labor_calc[labor_calc["Validita"] == "LIVELLO NON VALIDO"] if not labor_calc.empty else pd.DataFrame()
+    zero_rates = labor_calc[labor_calc["Validita"] == "COSTO DA CONFIGURARE"] if not labor_calc.empty else pd.DataFrame()
+    if not invalid_levels.empty:
+        st.error("Ci sono livelli non validi per il contratto scelto.")
+    if not zero_rates.empty:
+        st.warning("Alcuni livelli validi non hanno ancora un costo orario aziendale nel tariffario.")
 
-    labor_hours = safe_sum(person_calc["Ore"].apply(parse_hours))
-    labor_cost = safe_sum(person_calc["Costo Totale"])
+    labor_hours = safe_sum(labor_calc["Ore"] if not labor_calc.empty else None)
+    labor_cost = safe_sum(labor_calc["Costo Totale"] if not labor_calc.empty else None)
 
     # --------------------------------------------------------
-    # MEZZI
+    # ESPANSIONE CERTIFICAZIONE -> MEZZI
     # --------------------------------------------------------
-    st.markdown('<div class="section-title">Step 4 · Ore mezzi</div>', unsafe_allow_html=True)
-
-    if not cert.empty and (cert["Risorsa"] == "Mezzo").any():
-        vehicle_rows = cert[cert["Risorsa"] == "Mezzo"][
-            ["Targa", "Mezzo", "Tipo Mezzo", "Ore"]
-        ].copy().rename(columns={"Tipo Mezzo": "Tipo"})
-    else:
-        vehicle_rows = pd.DataFrame([{
+    st.markdown('<div class="section-title">4. Mezzi certificati</div>', unsafe_allow_html=True)
+    v_rows = []
+    if not cert.empty:
+        for _, row in cert.iterrows():
+            plates = split_people(row["Targa"])
+            if not plates and str(row["Attrezzatura"]).strip():
+                plates = [""]
+            for plate in plates:
+                found = find_vehicle(vehicles, plate)
+                kind = "" if found is None else str(found["Tipo"])
+                v_rows.append({
+                    "Certificazione ID": row["ID"],
+                    "Targa": plate,
+                    "Attrezzatura": row["Attrezzatura"],
+                    "Tipo": kind,
+                    "Ore": parse_hours(row["Durata"]),
+                    "Data": row["Data Analisi"],
+                    "Stato": "MATCH ANAGRAFICA" if found is not None else "DA ASSEGNARE",
+                })
+    if not v_rows:
+        v_rows = [{
+            "Certificazione ID": "",
             "Targa": "",
-            "Mezzo": "",
-            "Tipo": VEHICLE_TYPES[0],
+            "Attrezzatura": "",
+            "Tipo": DEFAULT_VEHICLE_TYPES[0],
             "Ore": 0.0,
-        }])
+            "Data": pd.Timestamp(service_date),
+            "Stato": "MANUALE",
+        }]
+    vehicle_editor = pd.DataFrame(v_rows)
+    vehicle_editor["Data"] = pd.to_datetime(vehicle_editor["Data"], errors="coerce").dt.strftime("%d/%m/%Y")
 
-    vehicle_rows["Tipo"] = vehicle_rows["Tipo"].astype(str).str.strip()
-    vehicle_rows.loc[~vehicle_rows["Tipo"].isin(VEHICLE_TYPES), "Tipo"] = VEHICLE_TYPES[0]
+    # Tipo mezzo dinamico: lista di default + tipi presenti in tariffario/anagrafica.
+    tariff_types = tariffs.loc[tariffs["Tipo"].astype(str).str.lower().eq("mezzo"), "Livello_o_Tipo"].astype(str).tolist()
+    vehicle_types = sorted(set(DEFAULT_VEHICLE_TYPES + [x for x in tariff_types if x.strip()]))
 
     edited_vehicles = st.data_editor(
-        vehicle_rows.reset_index(drop=True),
+        vehicle_editor,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Tipo": st.column_config.SelectboxColumn("Tipo mezzo", options=VEHICLE_TYPES),
-            "Ore": st.column_config.NumberColumn("Ore", min_value=0.0, step=0.25, format="%.2f"),
+            "Tipo": st.column_config.SelectboxColumn("Tipo mezzo", options=vehicle_types),
+            "Ore": st.column_config.NumberColumn("Ore certificate", min_value=0.0, step=0.25),
+            "Stato": st.column_config.TextColumn("Stato", disabled=True),
         },
-        key="vehicles_v4",
+        key="v6_vehicle_editor",
     )
 
-    vehicle_calc = edited_vehicles.copy()
-    vehicle_calc["Costo Orario"] = 0.0
-    vehicle_calc["Costo Totale"] = 0.0
-    vehicle_zero_rates = []
-    for idx, row in vehicle_calc.iterrows():
+    vehicle_calc_rows = []
+    for _, row in edited_vehicles.iterrows():
         kind = str(row.get("Tipo", "")).strip()
+        hours = parse_hours(row.get("Ore", 0))
         rate = vehicle_rate(tariffs, kind)
-        if rate <= 0:
-            vehicle_zero_rates.append(kind)
-        vehicle_calc.loc[idx, "Costo Orario"] = rate
-        vehicle_calc.loc[idx, "Costo Totale"] = parse_hours(row.get("Ore", 0)) * rate
+        vehicle_calc_rows.append({**row.to_dict(), "Costo Orario": rate, "Costo Totale": hours * rate, "Validita": "OK" if rate > 0 else "COSTO DA CONFIGURARE"})
+    vehicle_calc = pd.DataFrame(vehicle_calc_rows)
+    zero_vehicle_rates = vehicle_calc[vehicle_calc["Costo Orario"].le(0)] if not vehicle_calc.empty else pd.DataFrame()
+    if not zero_vehicle_rates.empty:
+        st.warning("Alcune tipologie di mezzo non hanno ancora un costo orario.")
 
-    if vehicle_zero_rates:
-        st.warning("Costo mezzo non configurato per: " + ", ".join(sorted(set(vehicle_zero_rates))))
-
-    vehicle_hours = safe_sum(vehicle_calc["Ore"].apply(parse_hours))
-    vehicle_cost = safe_sum(vehicle_calc["Costo Totale"])
+    vehicle_hours = safe_sum(vehicle_calc["Ore"] if not vehicle_calc.empty else None)
+    vehicle_cost = safe_sum(vehicle_calc["Costo Totale"] if not vehicle_calc.empty else None)
 
     # --------------------------------------------------------
-    # ECONOMIA
+    # RISULTATO ECONOMICO
     # --------------------------------------------------------
-    st.markdown('<div class="section-title">Step 5 · Risultato economico</div>', unsafe_allow_html=True)
-
-    overhead_pct = safe_value(general_rate(tariffs, "Overhead", 15.0))
-    labor_cost = safe_value(labor_cost)
-    vehicle_cost = safe_value(vehicle_cost)
-    revenue = safe_value(revenue)
+    st.markdown('<div class="section-title">5. Centro di costo</div>', unsafe_allow_html=True)
+    overhead_pct = general_rate(tariffs, "Overhead", 15.0)
     overhead = (labor_cost + vehicle_cost) * overhead_pct / 100
     total_cost = labor_cost + vehicle_cost + overhead
     margin = revenue - total_cost
-    margin_pct = (margin / revenue * 100) if revenue else 0.0
+    margin_pct = margin / revenue * 100 if revenue else 0
 
-    k1, k2, k3, k4, k5 = st.columns(5)
-    result_cards = [
-        (k1, "Personale", euro(labor_cost), "teal"),
-        (k2, "Mezzi", euro(vehicle_cost), "blue"),
-        (k3, "Overhead", euro(overhead), "amber"),
-        (k4, "Costo totale", euro(total_cost), "purple"),
-        (k5, "Margine", euro(margin), "" if safe_value(margin) >= 0 else "red"),
+    result = st.columns(5)
+    cards = [
+        (result[0], "Personale", euro(labor_cost), "teal"),
+        (result[1], "Mezzi", euro(vehicle_cost), "blue"),
+        (result[2], "Overhead", euro(overhead), "amber"),
+        (result[3], "Costo totale", euro(total_cost), "purple"),
+        (result[4], "Margine", euro(margin), "" if margin >= 0 else "red"),
     ]
-    for col, label, value, cls in result_cards:
+    for col, name, value, cls in cards:
         with col:
-            st.markdown(f'<div class="kpi {cls}"><div class="kpi-strip"></div><div class="kpi-label">{label}</div><div class="kpi-value">{value}</div><div class="kpi-note">{percent(margin_pct) if label == "Margine" else ""}</div></div>', unsafe_allow_html=True)
+            note = pct(margin_pct) if name == "Margine" else ""
+            st.markdown(f'<div class="kpi {cls}"><div class="kpi-strip"></div><div class="kpi-label">{name}</div><div class="kpi-value">{value}</div><div class="kpi-note">{note}</div></div>', unsafe_allow_html=True)
 
-    if margin > 0:
-        st.markdown('<span class="status ok">● MARGINE POSITIVO</span>', unsafe_allow_html=True)
-    elif margin < 0:
-        st.markdown('<span class="status bad">● MARGINE NEGATIVO</span>', unsafe_allow_html=True)
-    else:
-        st.markdown('<span class="status warn">● PAREGGIO</span>', unsafe_allow_html=True)
+    st.markdown('<div style="margin:10px 0"><span class="status ' + ("ok" if margin >= 0 else "bad") + '">' + ("● MARGINE POSITIVO" if margin >= 0 else "■ MARGINE NEGATIVO") + '</span></div>', unsafe_allow_html=True)
+    notes = st.text_area("Note / scostamenti", placeholder="Spiegazioni, anomalie, riferimenti alla certificazione...")
 
-    notes = st.text_area("Note operative", placeholder="Anomalie, scostamenti, spiegazioni, riferimenti alla certificazione...")
-
-    if st.button("Salva consuntivo completo", type="primary", use_container_width=True):
-        if invalid_contracts:
-            st.error("Correggere prima contratto/livello delle righe personale.")
+    if st.button("Salva centro di costo", type="primary", use_container_width=True):
+        if not raw_cert.empty and cert.empty:
+            st.error("Impossibile salvare: la certificazione attiva non corrisponde al sottoservizio selezionato.")
+            st.stop()
+        if not invalid_levels.empty:
+            st.error("Impossibile salvare: correggi i livelli contrattuali non validi.")
             st.stop()
         cid = "CC-" + datetime.now().strftime("%Y%m%d%H%M%S%f")
         base = pd.DataFrame([{
@@ -1870,6 +1463,7 @@ elif page == "Consuntivazione":
             "Data": pd.Timestamp(service_date),
             "Servizio": service,
             "Sottoservizio": subservice,
+            "Centro di Costo": centro_costo(service, subservice),
             "Tonnellate": tonnage,
             "Ricavi": revenue,
             "Costo Personale": labor_cost,
@@ -1877,82 +1471,99 @@ elif page == "Consuntivazione":
             "Overhead": overhead,
             "Costo Totale": total_cost,
             "Margine": margin,
+            "Ore Uomo": labor_hours,
+            "Ore Mezzi": vehicle_hours,
             "Note": notes,
             "Creato Da": st.session_state.nome,
         }])
-        services_new = pd.concat([services, base], ignore_index=True)
-        save_csv(services_new, FILES["services"])
+        save_csv(pd.concat([services_df, base], ignore_index=True), FILES["services"])
 
-        p = person_calc.copy()
-        p["ID Consuntivo"] = cid
-        p["Data"] = pd.Timestamp(service_date)
-        p["Servizio"] = service
-        p["Sottoservizio"] = subservice
-        p = ensure(p, ["Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale"])
-        p = p[["ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale"]]
-        save_csv(pd.concat([personnel_detail, p], ignore_index=True), FILES["personnel"])
+        p_rows = []
+        for _, row in labor_calc.iterrows():
+            p_rows.append({
+                "ID Consuntivo": cid,
+                "Certificazione ID": row.get("Certificazione ID", ""),
+                "Data": pd.Timestamp(service_date),
+                "Servizio": service,
+                "Sottoservizio": subservice,
+                "Matricola": row.get("Matricola", ""),
+                "Operatore": row.get("Operatore", ""),
+                "Contratto": row.get("Contratto", ""),
+                "Livello": row.get("Livello", ""),
+                "Ore": parse_hours(row.get("Ore", 0)),
+                "Costo Orario": safe_value(row.get("Costo Orario", 0)),
+                "Costo Totale": safe_value(row.get("Costo Totale", 0)),
+                "Stato Match": row.get("Stato", ""),
+            })
+        save_csv(pd.concat([personnel_detail, pd.DataFrame(p_rows)], ignore_index=True), FILES["personnel"])
 
-        v = vehicle_calc.copy()
-        v["ID Consuntivo"] = cid
-        v["Data"] = pd.Timestamp(service_date)
-        v["Servizio"] = service
-        v["Sottoservizio"] = subservice
-        v = ensure(v, ["Targa", "Mezzo", "Tipo", "Ore", "Costo Orario", "Costo Totale"])
-        v = v[["ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Targa", "Mezzo", "Tipo", "Ore", "Costo Orario", "Costo Totale"]]
-        save_csv(pd.concat([vehicle_detail, v], ignore_index=True), FILES["vehicle_detail"])
-
-        st.success(f"Consuntivo {cid} salvato correttamente.")
+        v_rows_save = []
+        for _, row in vehicle_calc.iterrows():
+            v_rows_save.append({
+                "ID Consuntivo": cid,
+                "Certificazione ID": row.get("Certificazione ID", ""),
+                "Data": pd.Timestamp(service_date),
+                "Servizio": service,
+                "Sottoservizio": subservice,
+                "Targa": row.get("Targa", ""),
+                "Attrezzatura": row.get("Attrezzatura", ""),
+                "Tipo": row.get("Tipo", ""),
+                "Ore": parse_hours(row.get("Ore", 0)),
+                "Costo Orario": safe_value(row.get("Costo Orario", 0)),
+                "Costo Totale": safe_value(row.get("Costo Totale", 0)),
+                "Stato Match": row.get("Stato", ""),
+            })
+        save_csv(pd.concat([vehicle_detail, pd.DataFrame(v_rows_save)], ignore_index=True), FILES["vehicle_detail"])
+        st.success(f"Centro di costo {cid} salvato.")
         st.rerun()
-
 
 # ============================================================
 # ECONOMICO
 # ============================================================
 
 elif page == "Economico":
-    df = authorized_services(services)
-    st.markdown('<div class="section-title">Centro di costo per servizio</div>', unsafe_allow_html=True)
+    df = authorized(services_df)
+    st.markdown('<div class="section-title">Centro di costo per servizio e sottoservizio</div>', unsafe_allow_html=True)
     if df.empty:
         st.info("Non ci sono consuntivi disponibili.")
     else:
-        service_filter = st.selectbox("Servizio", ["Tutti"] + list(SERVICE_TREE.keys()))
-        sub_filter = st.selectbox("Sottoservizio", ["Tutti"] + sorted(st.session_state.allowed_subservices if not is_admin() else ALL_SUBSERVICES))
+        a, b = st.columns([1, 1.4])
+        with a:
+            service_filter = st.selectbox("Servizio", ["Tutti"] + list(SERVICE_TREE.keys()))
+        with b:
+            subs = ALL_SUBSERVICES if service_filter == "Tutti" else SERVICE_TREE[service_filter]
+            if not is_admin():
+                subs = [x for x in subs if x in st.session_state.allowed_subservices]
+            sub_filter = st.selectbox("Sottoservizio", ["Tutti"] + list(subs))
         if service_filter != "Tutti":
             df = df[df["Servizio"].eq(service_filter)]
         if sub_filter != "Tutti":
             df = df[df["Sottoservizio"].eq(sub_filter)]
 
         summary = df.groupby(["Servizio", "Sottoservizio"]).agg(
-            Ricavi=("Ricavi", "sum"),
-            Costi=("Costo Totale", "sum"),
-            Margine=("Margine", "sum"),
-            Tonnellate=("Tonnellate", "sum"),
+            Ricavi=("Ricavi", "sum"), Costi=("Costo Totale", "sum"), Margine=("Margine", "sum"),
+            Tonnellate=("Tonnellate", "sum"), Ore_Uomo=("Ore Uomo", "sum"), Ore_Mezzi=("Ore Mezzi", "sum"),
         ).reset_index()
-        for c in ["Ricavi", "Costi", "Margine", "Tonnellate"]:
-            summary[c] = summary[c].apply(parse_num)
         summary["Margine %"] = np.where(summary["Ricavi"] != 0, summary["Margine"] / summary["Ricavi"] * 100, 0)
-
         display = summary.copy()
         for c in ["Ricavi", "Costi", "Margine"]:
             display[c] = display[c].apply(euro)
-        display["Tonnellate"] = display["Tonnellate"].apply(lambda x: num(x, 1))
-        display["Margine %"] = display["Margine %"].apply(percent)
+        for c in ["Tonnellate", "Ore_Uomo", "Ore_Mezzi"]:
+            display[c] = display[c].apply(num)
+        display["Margine %"] = display["Margine %"].apply(pct)
         st.dataframe(display, use_container_width=True, hide_index=True)
 
         l, r = st.columns(2)
         with l:
             st.markdown('<div class="panel"><div class="panel-title">Costo personale per contratto / livello</div></div>', unsafe_allow_html=True)
-            p = authorized_services(personnel_detail)
+            p = authorized(personnel_detail)
             if not p.empty:
-                data = p.groupby(["Contratto", "Livello"])["Costo Totale"].sum().sort_values(ascending=False)
-                st.bar_chart(data)
+                st.bar_chart(p.groupby(["Contratto", "Livello"])["Costo Totale"].sum().sort_values(ascending=False))
         with r:
             st.markdown('<div class="panel"><div class="panel-title">Costo mezzi per tipologia</div></div>', unsafe_allow_html=True)
-            v = authorized_services(vehicle_detail)
+            v = authorized(vehicle_detail)
             if not v.empty:
-                data = v.groupby("Tipo")["Costo Totale"].sum().sort_values(ascending=False)
-                st.bar_chart(data)
-
+                st.bar_chart(v.groupby("Tipo")["Costo Totale"].sum().sort_values(ascending=False))
 
 # ============================================================
 # ANAGRAFICHE
@@ -1962,34 +1573,26 @@ elif page == "Anagrafiche":
     if not is_admin():
         st.error("Sezione riservata alla Direzione.")
         st.stop()
-
-    t1, t2 = st.tabs(["Operatori", "Mezzi"])
+    t1, t2 = st.tabs(["👷 Operatori", "🚛 Mezzi"])
     with t1:
         st.markdown('<div class="section-title">Operatori</div>', unsafe_allow_html=True)
-        edited = st.data_editor(operators, num_rows="dynamic", use_container_width=True, hide_index=True)
-        st.caption("Il contratto e il livello dell'operatore alimentano automaticamente il calcolo del costo orario nei consuntivi.")
+        edited = st.data_editor(operators, num_rows="dynamic", use_container_width=True, hide_index=True, key="operators_editor")
+        st.caption("Contratto e livello alimentano il costo orario del personale.")
         if st.button("Salva operatori", type="primary"):
             save_csv(edited, FILES["operators"])
             st.success("Operatori salvati.")
             st.rerun()
-
     with t2:
         st.markdown('<div class="section-title">Mezzi</div>', unsafe_allow_html=True)
-        edited = st.data_editor(
-            vehicles,
-            num_rows="dynamic",
-            use_container_width=True,
-            hide_index=True,
-            column_config={"Tipo": st.column_config.SelectboxColumn("Tipo", options=VEHICLE_TYPES)},
-        )
+        current_types = sorted(set(DEFAULT_VEHICLE_TYPES + tariffs.loc[tariffs["Tipo"].astype(str).str.lower().eq("mezzo"), "Livello_o_Tipo"].astype(str).tolist()))
+        edited = st.data_editor(vehicles, num_rows="dynamic", use_container_width=True, hide_index=True, column_config={"Tipo": st.column_config.SelectboxColumn("Tipo", options=current_types)}, key="vehicles_editor")
         if st.button("Salva mezzi", type="primary"):
             save_csv(edited, FILES["vehicles"])
             st.success("Mezzi salvati.")
             st.rerun()
 
-
 # ============================================================
-# TARIFFARI & CONTRATTI
+# TARIFFARI / CONTRATTI
 # ============================================================
 
 elif page == "Tariffari & Contratti":
@@ -1997,70 +1600,54 @@ elif page == "Tariffari & Contratti":
         st.error("Sezione riservata alla Direzione.")
         st.stop()
 
-    st.markdown(
-        """
-        <div class="hero">
-            <div class="hero-kicker">Regola economica</div>
-            <div class="hero-title">Contratto e costo orario sono due cose diverse</div>
-            <div class="hero-copy">Il contratto definisce l'inquadramento dell'operatore. Il costo orario utilizzato dal Centro di Costo viene configurato dalla Direzione e può includere il costo aziendale effettivo.</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    t1, t2, t3 = st.tabs(["👷 Personale", "🚛 Mezzi", "⚙️ Generale"])
+    st.markdown("<div class='hero'><div class='hero-kicker'>Tariffario</div><div class='hero-title'>Contratto ≠ costo orario</div><div class='hero-copy'>Il contratto identifica l'inquadramento. Il costo orario usato nel centro di costo è quello aziendale configurato dalla Direzione.</div></div>", unsafe_allow_html=True)
+    t1, t2, t3 = st.tabs(["👷 Personale", "🚛 Mezzi", "⚙️ Parametri"])
 
     with t1:
+        st.markdown('<div class="section-title">Livelli contrattuali</div>', unsafe_allow_html=True)
         labor = tariffs[tariffs["Tipo"].astype(str).str.lower().eq("personale")].copy()
-        edited = st.data_editor(
-            labor,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
+        edited = st.data_editor(labor, num_rows="dynamic", use_container_width=True, hide_index=True,
             column_config={
                 "Contratto": st.column_config.SelectboxColumn("Contratto", options=list(CONTRACTS.keys())),
-                "Costo_Orario": st.column_config.NumberColumn("Costo orario aziendale", min_value=0.0, step=0.01, format="%.2f"),
+                "Livello_o_Tipo": st.column_config.TextColumn("Livello"),
+                "Costo_Orario": st.column_config.NumberColumn("Costo orario aziendale", min_value=0.0, step=0.01),
                 "Attivo": st.column_config.SelectboxColumn("Attivo", options=["SI", "NO"]),
-            },
-        )
-        if st.button("Salva costi orari personale", type="primary"):
-            others = tariffs[~tariffs["Tipo"].astype(str).str.lower().eq("personale")].copy()
+            }, key="tariff_labor")
+        st.info("Imposta qui il costo orario aziendale effettivo per ogni livello. I valori 0 restano volutamente non valorizzati.")
+        if st.button("Salva costi personale", type="primary"):
+            others = tariffs[~tariffs["Tipo"].astype(str).str.lower().eq("personale")]
             save_csv(pd.concat([others, edited], ignore_index=True), FILES["tariffs"])
-            st.success("Costi orari del personale aggiornati.")
+            st.success("Tariffario personale aggiornato.")
             st.rerun()
 
     with t2:
+        st.markdown('<div class="section-title">Costi orari mezzi</div>', unsafe_allow_html=True)
         mech = tariffs[tariffs["Tipo"].astype(str).str.lower().eq("mezzo")].copy()
-        edited = st.data_editor(
-            mech,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
+        edited = st.data_editor(mech, num_rows="dynamic", use_container_width=True, hide_index=True,
             column_config={
-                "Livello_o_Tipo": st.column_config.SelectboxColumn("Tipo mezzo", options=VEHICLE_TYPES),
-                "Costo_Orario": st.column_config.NumberColumn("Costo orario", min_value=0.0, step=0.01, format="%.2f"),
+                "Livello_o_Tipo": st.column_config.TextColumn("Tipo mezzo"),
+                "Costo_Orario": st.column_config.NumberColumn("Costo orario", min_value=0.0, step=0.01),
                 "Attivo": st.column_config.SelectboxColumn("Attivo", options=["SI", "NO"]),
-            },
-        )
+            }, key="tariff_vehicle")
         if st.button("Salva costi mezzi", type="primary"):
-            others = tariffs[~tariffs["Tipo"].astype(str).str.lower().eq("mezzo")].copy()
+            others = tariffs[~tariffs["Tipo"].astype(str).str.lower().eq("mezzo")]
             save_csv(pd.concat([others, edited], ignore_index=True), FILES["tariffs"])
-            st.success("Costi mezzi aggiornati.")
+            st.success("Tariffario mezzi aggiornato.")
             st.rerun()
 
     with t3:
+        st.markdown('<div class="section-title">Parametri generali</div>', unsafe_allow_html=True)
         general = tariffs[tariffs["Tipo"].astype(str).str.lower().eq("generale")].copy()
-        edited = st.data_editor(general, use_container_width=True, hide_index=True, num_rows="dynamic")
-        if st.button("Salva parametri generali", type="primary"):
-            others = tariffs[~tariffs["Tipo"].astype(str).str.lower().eq("generale")].copy()
+        edited = st.data_editor(general, num_rows="dynamic", use_container_width=True, hide_index=True, key="tariff_general")
+        if st.button("Salva parametri", type="primary"):
+            others = tariffs[~tariffs["Tipo"].astype(str).str.lower().eq("generale")]
             save_csv(pd.concat([others, edited], ignore_index=True), FILES["tariffs"])
-            st.success("Parametri generali aggiornati.")
+            st.success("Parametri aggiornati.")
             st.rerun()
 
-    zero_labor = int(((tariffs["Tipo"].astype(str).str.lower() == "personale") & (tariffs["Costo_Orario"] <= 0)).sum())
-    if zero_labor:
-        st.warning(f"Ci sono {zero_labor} livelli del personale senza costo orario configurato. Prima di usare il consuntivo definitivo, valorizza il tariffario.")
-
+    zero = int(((tariffs["Tipo"].astype(str).str.lower() == "personale") & (tariffs["Costo_Orario"] <= 0)).sum())
+    if zero:
+        st.warning(f"Attenzione: {zero} livelli personale hanno ancora costo orario 0.")
 
 # ============================================================
 # ACCESSI
@@ -2070,22 +1657,23 @@ elif page == "Accessi":
     if not is_admin():
         st.error("Sezione riservata alla Direzione.")
         st.stop()
-
     st.markdown('<div class="section-title">Utenti e autorizzazioni</div>', unsafe_allow_html=True)
-    st.info("Nel campo autorizzazioni puoi usare più sottoservizi separati da virgola oppure TUTTI per la Direzione.")
-    edited = st.data_editor(users, num_rows="dynamic", use_container_width=True, hide_index=True)
+    st.info("Le autorizzazioni si impostano sui sottoservizi: Prato, Piana, Mantova, ecc. La Direzione può usare TUTTI.")
+    edited = st.data_editor(users, num_rows="dynamic", use_container_width=True, hide_index=True, key="users_editor")
     if st.button("Salva accessi", type="primary"):
         save_csv(edited, FILES["users"])
         st.success("Accessi aggiornati.")
         st.rerun()
 
     st.markdown('<div class="section-title">Albero servizi</div>', unsafe_allow_html=True)
-    for service_name, subs in SERVICE_TREE.items():
-        st.markdown(f'<div class="matrix-row"><div class="matrix-name">{service_name}</div>{"".join([f"<span class=\"pill on\">{x}</span>" for x in subs])}</div>', unsafe_allow_html=True)
-
+    st.markdown('<div class="panel">', unsafe_allow_html=True)
+    for service, subs in SERVICE_TREE.items():
+        pills = "".join([f'<span class="pill ok">{x}</span>' for x in subs])
+        st.markdown(f'<div style="padding:7px 0"><strong style="color:#16231D">{service}</strong><div style="margin-top:3px">{pills}</div></div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # ============================================================
 # FOOTER
 # ============================================================
 
-st.markdown('<div class="footer">Cristoforo · Control Room · Centro di Costo · V4</div>', unsafe_allow_html=True)
+st.markdown('<div class="footer">Cristoforo · Control Room V6.1 · Centro di Costo</div>', unsafe_allow_html=True)
