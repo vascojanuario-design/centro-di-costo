@@ -2,19 +2,21 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import io
+import re
 from datetime import datetime, date
+
 
 # ============================================================
 # CONFIGURAZIONE
 # ============================================================
 
 st.set_page_config(
-    page_title="Cristoforo | Control Room",
+    page_title="Control Room | Cristoforo",
     page_icon="♻️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
+
 
 # ============================================================
 # FILE
@@ -31,353 +33,7 @@ TARIFFE_FILE = os.path.join(BASE_DIR, "tariffe_cristoforo.csv")
 
 
 # ============================================================
-# CSS - CONTROL ROOM / SAAS PREMIUM
-# ============================================================
-
-st.markdown("""
-<style>
-
-    /* ------------------------------
-       BASE
-    ------------------------------ */
-
-    .stApp {
-        background: #f4f6f8;
-    }
-
-    .main .block-container {
-        max-width: 1500px;
-        padding-top: 1.2rem;
-        padding-bottom: 3rem;
-    }
-
-    /* ------------------------------
-       SIDEBAR
-    ------------------------------ */
-
-    section[data-testid="stSidebar"] {
-        background: #111827;
-        border-right: 1px solid #1f2937;
-    }
-
-    section[data-testid="stSidebar"] > div {
-        background: #111827;
-    }
-
-    section[data-testid="stSidebar"] * {
-        color: #e5e7eb;
-    }
-
-    .sidebar-logo {
-        padding: 10px 8px 24px 8px;
-    }
-
-    .sidebar-logo img {
-        max-width: 180px;
-        max-height: 58px;
-        object-fit: contain;
-    }
-
-    .sidebar-title {
-        font-size: 12px;
-        color: #9ca3af;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        margin-top: 8px;
-        margin-bottom: 18px;
-    }
-
-    .sidebar-user {
-        background: #1f2937;
-        border: 1px solid #374151;
-        border-radius: 12px;
-        padding: 12px;
-        margin-bottom: 18px;
-    }
-
-    .sidebar-user-name {
-        font-weight: 700;
-        color: white;
-        font-size: 14px;
-    }
-
-    .sidebar-user-role {
-        color: #9ca3af;
-        font-size: 12px;
-        margin-top: 3px;
-    }
-
-    /* ------------------------------
-       HEADER
-    ------------------------------ */
-
-    .top-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-    }
-
-    .eyebrow {
-        color: #6b7280;
-        font-size: 12px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 1.4px;
-    }
-
-    .page-title {
-        color: #111827;
-        font-size: 32px;
-        font-weight: 800;
-        line-height: 1.1;
-        margin-top: 5px;
-    }
-
-    .page-subtitle {
-        color: #6b7280;
-        font-size: 14px;
-        margin-top: 7px;
-        margin-bottom: 25px;
-    }
-
-    .user-pill {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 30px;
-        padding: 9px 15px;
-        font-size: 13px;
-        color: #374151;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-    }
-
-    /* ------------------------------
-       KPI CARDS
-    ------------------------------ */
-
-    .kpi-card {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 16px;
-        padding: 19px 20px;
-        min-height: 145px;
-        box-shadow: 0 4px 18px rgba(15, 23, 42, 0.045);
-    }
-
-    .kpi-label {
-        color: #6b7280;
-        font-size: 12px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.7px;
-    }
-
-    .kpi-value {
-        color: #111827;
-        font-size: 30px;
-        font-weight: 800;
-        margin-top: 12px;
-        line-height: 1;
-    }
-
-    .kpi-value.green {
-        color: #008b3a;
-    }
-
-    .kpi-value.red {
-        color: #dc2626;
-    }
-
-    .kpi-value.orange {
-        color: #d97706;
-    }
-
-    .kpi-meta {
-        margin-top: 13px;
-        font-size: 12px;
-        color: #6b7280;
-    }
-
-    /* ------------------------------
-       SECTION
-    ------------------------------ */
-
-    .section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 28px;
-        margin-bottom: 13px;
-    }
-
-    .section-title {
-        color: #111827;
-        font-size: 18px;
-        font-weight: 800;
-    }
-
-    .section-description {
-        color: #6b7280;
-        font-size: 12px;
-    }
-
-    /* ------------------------------
-       PANELS
-    ------------------------------ */
-
-    .panel {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 16px;
-        padding: 20px;
-        box-shadow: 0 4px 18px rgba(15, 23, 42, 0.035);
-    }
-
-    /* ------------------------------
-       BADGES
-    ------------------------------ */
-
-    .badge {
-        display: inline-block;
-        padding: 5px 9px;
-        border-radius: 999px;
-        font-size: 11px;
-        font-weight: 800;
-        letter-spacing: .3px;
-    }
-
-    .badge-ok {
-        background: #dcfce7;
-        color: #166534;
-    }
-
-    .badge-warning {
-        background: #fef3c7;
-        color: #92400e;
-    }
-
-    .badge-critical {
-        background: #fee2e2;
-        color: #991b1b;
-    }
-
-    .badge-neutral {
-        background: #f3f4f6;
-        color: #4b5563;
-    }
-
-    /* ------------------------------
-       COMMESSA HERO
-    ------------------------------ */
-
-    .commessa-box {
-        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid #dfe5e9;
-        border-left: 5px solid #008b3a;
-        border-radius: 16px;
-        padding: 19px 22px;
-        margin-bottom: 20px;
-        box-shadow: 0 5px 20px rgba(15, 23, 42, 0.04);
-    }
-
-    .commessa-label {
-        color: #6b7280;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-size: 10px;
-        font-weight: 800;
-    }
-
-    .commessa-name {
-        color: #111827;
-        font-size: 23px;
-        font-weight: 800;
-        margin-top: 4px;
-    }
-
-    /* ------------------------------
-       LOGIN
-    ------------------------------ */
-
-    .login-wrapper {
-        max-width: 460px;
-        margin: 70px auto;
-    }
-
-    .login-card {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 20px;
-        padding: 34px;
-        box-shadow: 0 15px 50px rgba(15,23,42,0.08);
-    }
-
-    .login-title {
-        font-size: 28px;
-        font-weight: 800;
-        color: #111827;
-        margin-top: 15px;
-    }
-
-    .login-subtitle {
-        color: #6b7280;
-        font-size: 14px;
-        margin-bottom: 25px;
-    }
-
-    /* ------------------------------
-       STREAMLIT ELEMENTS
-    ------------------------------ */
-
-    div[data-testid="stMetric"] {
-        background: white;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        padding: 12px;
-    }
-
-    .stButton > button {
-        border-radius: 10px;
-        border: 1px solid #d1d5db;
-        font-weight: 700;
-    }
-
-    .stButton > button[kind="primary"] {
-        background: #008b3a;
-        border-color: #008b3a;
-        color: white;
-    }
-
-    .stDownloadButton > button {
-        border-radius: 10px;
-        font-weight: 700;
-    }
-
-    div[data-baseweb="select"] > div {
-        border-radius: 10px;
-    }
-
-    div[data-testid="stDataFrame"] {
-        border-radius: 12px;
-        overflow: hidden;
-    }
-
-    /* ------------------------------
-       TABLE HEADER
-    ------------------------------ */
-
-    .table-caption {
-        color: #6b7280;
-        font-size: 12px;
-        margin-bottom: 8px;
-    }
-
-</style>
-""", unsafe_allow_html=True)
-
-
-# ============================================================
-# DATI DI DEFAULT
+# UTENTI DEFAULT
 # ============================================================
 
 DEFAULT_USERS = pd.DataFrame([
@@ -386,229 +42,1809 @@ DEFAULT_USERS = pd.DataFrame([
         "password": "admin",
         "nome": "Direzione",
         "ruolo": "admin",
-        "cantieri": "TUTTI"
+        "cantieri": "TUTTI",
     },
     {
-        "username": "mario",
+        "username": "resp_prato",
         "password": "123",
-        "nome": "Mario Rossi",
+        "nome": "Responsabile Prato",
         "ruolo": "capocantiere",
-        "cantieri": "RACCOLTA PAP PRATO, RACCOLTA CARTONE SELETTIVO"
+        "cantieri": "Prato",
     },
     {
-        "username": "luca",
+        "username": "resp_mantova",
         "password": "456",
-        "nome": "Luca Bianchi",
+        "nome": "Responsabile Mantova",
         "ruolo": "capocantiere",
-        "cantieri": "RACCOLTA PAP MANTOVA, Movimentazione Scarrabili"
-    }
+        "cantieri": "Mantova",
+    },
 ])
+
+
+# ============================================================
+# TARIFFE DEFAULT
+# ============================================================
 
 DEFAULT_TARIFFE = pd.DataFrame([
-    {"categoria": "Personale", "voce": "L1", "costo": 22.0},
-    {"categoria": "Personale", "voce": "L2", "costo": 25.0},
-    {"categoria": "Personale", "voce": "L3", "costo": 28.0},
-    {"categoria": "Personale", "voce": "L4", "costo": 32.0},
-    {"categoria": "Mezzi", "voce": "Leggero", "costo": 15.0},
-    {"categoria": "Mezzi", "voce": "Compattatore", "costo": 25.0},
-    {"categoria": "Mezzi", "voce": "Pesante", "costo": 45.0},
-    {"categoria": "Mezzi", "voce": "Speciale", "costo": 65.0},
-    {"categoria": "Generale", "voce": "Overhead", "costo": 15.0},
-    {"categoria": "Generale", "voce": "Tariffa tonnellata", "costo": 130.0},
+    {"Categoria": "Personale", "Voce": "L1", "Costo": 22.0},
+    {"Categoria": "Personale", "Voce": "L2", "Costo": 25.0},
+    {"Categoria": "Personale", "Voce": "L3", "Costo": 28.0},
+    {"Categoria": "Personale", "Voce": "L4", "Costo": 32.0},
+
+    {"Categoria": "Mezzi", "Voce": "Leggero", "Costo": 15.0},
+    {"Categoria": "Mezzi", "Voce": "Compattatore", "Costo": 25.0},
+    {"Categoria": "Mezzi", "Voce": "Pesante", "Costo": 45.0},
+    {"Categoria": "Mezzi", "Voce": "Speciale", "Costo": 65.0},
+
+    {"Categoria": "Generale", "Voce": "Overhead", "Costo": 15.0},
+    {"Categoria": "Generale", "Voce": "Tariffa tonnellata", "Costo": 130.0},
 ])
 
 
 # ============================================================
-# FUNZIONI FILE
+# STRUTTURA SERVIZI
+# ============================================================
+#
+# Categoria = tipo di servizio
+# Dettaglio = territorio / commessa
+#
 # ============================================================
 
-def ensure_files():
+STRUTTURA_SERVIZI = {
+    "Spazzamenti": [
+        "Scandicci",
+    ],
 
-    if not os.path.exists(UTENTI_FILE):
-        DEFAULT_USERS.to_csv(UTENTI_FILE, index=False)
+    "Aree Verdi": [
+        "Piana",
+        "Prato",
+    ],
 
-    if not os.path.exists(TARIFFE_FILE):
-        DEFAULT_TARIFFE.to_csv(TARIFFE_FILE, index=False)
+    "Porta a Porta": [
+        "Prato",
+        "Vaiano",
+        "Campi",
+        "Noventa",
+        "Costabissara",
+        "Cremona",
+        "Mantova",
+        "Lucca",
+    ],
 
-    if not os.path.exists(SERVIZI_FILE):
-        pd.DataFrame(columns=[
-            "ID",
-            "Data",
-            "Cantiere",
-            "Categoria",
-            "Dettaglio",
-            "Tonnellate",
-            "Ore Personale",
-            "Ore Mezzi",
-            "Ricavi",
-            "Costo Personale",
-            "Costo Mezzi",
-            "Overhead",
-            "Costo Totale",
-            "Margine Netto",
-            "Utente"
-        ]).to_csv(SERVIZI_FILE, index=False)
+    "Trasporti": [
+        "Alia",
+    ],
 
-    if not os.path.exists(ORE_FILE):
-        pd.DataFrame().to_csv(ORE_FILE, index=False)
+    "Raccolta Cartone Selettivo": [
+        "Firenze",
+        "Piana",
+        "Prato",
+        "Campi",
+    ],
+
+    "Ingombranti": [
+        "Prato",
+        "Campi Bisenzio",
+        "Valdisieve",
+        "Mugello",
+    ],
+}
 
 
-def load_csv(path):
-    try:
-        if os.path.exists(path):
-            return pd.read_csv(path)
-    except Exception:
-        pass
+# ============================================================
+# LISTA COMMESSE DERIVATA DALLA STRUTTURA SERVIZI
+# ============================================================
+
+COMMESSE_STANDARD = sorted(
+    set(
+        dettaglio
+        for dettagli in STRUTTURA_SERVIZI.values()
+        for dettaglio in dettagli
+    )
+)
+
+
+# ============================================================
+# CSS
+# ============================================================
+
+st.markdown(
+    """
+<style>
+
+:root {
+    --green: #008b3a;
+    --green-dark: #006d2e;
+    --green-light: #e9f7ef;
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #17202a;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --sidebar: #101714;
+}
+
+html, body, [class*="css"] {
+    font-family: Inter, -apple-system, BlinkMacSystemFont,
+                 "Segoe UI", sans-serif;
+}
+
+.stApp {
+    background: var(--bg);
+}
+
+.block-container {
+    padding-top: 1.5rem;
+    padding-bottom: 3rem;
+    max-width: 1500px;
+}
+
+section[data-testid="stSidebar"] {
+    background: var(--sidebar);
+}
+
+section[data-testid="stSidebar"] * {
+    color: #eef5f0;
+}
+
+section[data-testid="stSidebar"] .stRadio label {
+    padding: 9px 10px;
+    border-radius: 9px;
+}
+
+section[data-testid="stSidebar"] .stRadio label:hover {
+    background: rgba(255,255,255,0.07);
+}
+
+h1, h2, h3 {
+    letter-spacing: -0.03em;
+    color: var(--text);
+}
+
+.page-title {
+    font-size: 31px;
+    font-weight: 750;
+    margin-bottom: 3px;
+}
+
+.page-subtitle {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.top-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--green);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.brand-name {
+    font-weight: 750;
+    font-size: 18px;
+}
+
+.brand-role {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.kpi-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 20px;
+    min-height: 125px;
+    box-shadow: 0 3px 12px rgba(15, 23, 42, 0.035);
+}
+
+.kpi-label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 650;
+}
+
+.kpi-value {
+    font-size: 29px;
+    line-height: 1.15;
+    font-weight: 780;
+    margin-top: 8px;
+    color: var(--text);
+}
+
+.kpi-caption {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 7px;
+}
+
+.commessa-hero {
+    background: linear-gradient(
+        135deg,
+        #ffffff 0%,
+        #f0faf4 100%
+    );
+    border: 1px solid #dcefe4;
+    border-radius: 18px;
+    padding: 22px 24px;
+    margin: 5px 0 22px 0;
+}
+
+.commessa-kicker {
+    color: var(--green);
+    text-transform: uppercase;
+    font-size: 11px;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+}
+
+.commessa-name {
+    color: var(--text);
+    font-size: 25px;
+    font-weight: 780;
+    margin-top: 4px;
+}
+
+.commessa-meta {
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.panel {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 18px;
+    box-shadow: 0 3px 12px rgba(15, 23, 42, 0.03);
+}
+
+.panel-title {
+    font-size: 16px;
+    font-weight: 730;
+    margin-bottom: 12px;
+}
+
+.badge {
+    display: inline-block;
+    padding: 5px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.badge-ok {
+    background: #e8f7ee;
+    color: #087a38;
+}
+
+.badge-warning {
+    background: #fff5df;
+    color: #9a6500;
+}
+
+.badge-critical {
+    background: #fdecec;
+    color: #b42318;
+}
+
+.badge-neutral {
+    background: #eef1f4;
+    color: #59636e;
+}
+
+.login-box {
+    max-width: 480px;
+    margin: 70px auto;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 35px;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+}
+
+.login-title {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.login-subtitle {
+    color: var(--muted);
+    margin-bottom: 25px;
+}
+
+.stButton > button {
+    border-radius: 10px;
+    font-weight: 650;
+    border: 1px solid var(--border);
+}
+
+.stButton > button[kind="primary"] {
+    background: var(--green);
+    border-color: var(--green);
+}
+
+div[data-testid="stDataFrame"] {
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+hr {
+    border-color: var(--border);
+}
+
+.footer {
+    color: #8a929b;
+    text-align: center;
+    font-size: 11px;
+    margin-top: 35px;
+}
+
+.service-box {
+    background: #f8faf9;
+    border: 1px solid #e1e9e4;
+    border-radius: 14px;
+    padding: 15px;
+    margin: 10px 0;
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# FUNZIONI CSV
+# ============================================================
+
+def clean_col_name(value):
+    if value is None:
+        return ""
+
+    value = str(value)
+    value = value.replace("\ufeff", "")
+    value = value.strip().lower()
+
+    value = (
+        value.replace("à", "a")
+        .replace("è", "e")
+        .replace("é", "e")
+        .replace("ì", "i")
+        .replace("ò", "o")
+        .replace("ù", "u")
+    )
+
+    value = re.sub(r"\s+", " ", value)
+    value = value.replace("_", " ")
+    value = value.replace("-", " ")
+
+    return value.strip()
+
+
+def normalize_columns(df):
+    if df is None:
+        return pd.DataFrame()
+
+    df = df.copy()
+
+    df.columns = [
+        clean_col_name(col)
+        for col in df.columns
+    ]
+
+    return df
+
+
+def flexible_read_csv(path, **kwargs):
+
+    if not os.path.exists(path):
+        return pd.DataFrame()
+
+    attempts = [
+        {
+            "sep": None,
+            "engine": "python",
+            "encoding": "utf-8-sig",
+        },
+        {
+            "sep": ";",
+            "encoding": "utf-8-sig",
+        },
+        {
+            "sep": ",",
+            "encoding": "utf-8-sig",
+        },
+        {
+            "sep": "\t",
+            "encoding": "utf-8-sig",
+        },
+        {
+            "sep": ";",
+            "encoding": "latin1",
+        },
+        {
+            "sep": ",",
+            "encoding": "latin1",
+        },
+    ]
+
+    for options in attempts:
+
+        try:
+
+            final_options = options.copy()
+            final_options.update(kwargs)
+
+            df = pd.read_csv(
+                path,
+                **final_options,
+            )
+
+            return normalize_columns(df)
+
+        except Exception:
+            continue
+
     return pd.DataFrame()
 
 
-def save_csv(df, path):
-    df.to_csv(path, index=False)
+def flexible_read_uploaded_csv(uploaded_file):
 
-
-def read_services():
-    df = load_csv(SERVIZI_FILE)
-
-    if df.empty:
-        return df
-
-    numeric_cols = [
-        "Tonnellate",
-        "Ore Personale",
-        "Ore Mezzi",
-        "Ricavi",
-        "Costo Personale",
-        "Costo Mezzi",
-        "Overhead",
-        "Costo Totale",
-        "Margine Netto"
+    attempts = [
+        {
+            "sep": None,
+            "engine": "python",
+            "encoding": "utf-8-sig",
+        },
+        {
+            "sep": ";",
+            "encoding": "utf-8-sig",
+        },
+        {
+            "sep": ",",
+            "encoding": "utf-8-sig",
+        },
+        {
+            "sep": "\t",
+            "encoding": "utf-8-sig",
+        },
+        {
+            "sep": ";",
+            "encoding": "latin1",
+        },
+        {
+            "sep": ",",
+            "encoding": "latin1",
+        },
     ]
 
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(",", ".", regex=False),
-                errors="coerce"
-            ).fillna(0)
+    for options in attempts:
 
-    if "Data" in df.columns:
-        df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
+        try:
+
+            uploaded_file.seek(0)
+
+            df = pd.read_csv(
+                uploaded_file,
+                **options,
+            )
+
+            return normalize_columns(df)
+
+        except Exception:
+            continue
+
+    return pd.DataFrame()
+
+
+def safe_to_csv(df, path):
+
+    try:
+
+        df.to_csv(
+            path,
+            index=False,
+            encoding="utf-8-sig",
+        )
+
+        return True
+
+    except Exception:
+
+        return False
+
+
+def first_existing_column(df, aliases):
+
+    if df is None:
+        return None
+
+    aliases = [
+        clean_col_name(x)
+        for x in aliases
+    ]
+
+    for alias in aliases:
+
+        if alias in df.columns:
+            return alias
+
+    return None
+
+
+def rename_using_aliases(df, alias_map):
+
+    if df is None:
+        return pd.DataFrame()
+
+    df = normalize_columns(df)
+
+    rename_map = {}
+
+    for standard, aliases in alias_map.items():
+
+        found = first_existing_column(
+            df,
+            [standard] + list(aliases),
+        )
+
+        if found and found != standard:
+            rename_map[found] = standard
+
+    if rename_map:
+        df = df.rename(
+            columns=rename_map
+        )
 
     return df
 
 
-def read_users():
-    df = load_csv(UTENTI_FILE)
+def ensure_columns(
+    df,
+    columns,
+    defaults=None,
+):
 
-    if df.empty:
-        df = DEFAULT_USERS.copy()
+    if df is None:
+        df = pd.DataFrame()
 
-    return df
+    df = df.copy()
 
+    defaults = defaults or {}
 
-def read_tariffe():
-    df = load_csv(TARIFFE_FILE)
+    for col in columns:
 
-    if df.empty:
-        return DEFAULT_TARIFFE.copy()
+        if col not in df.columns:
+            df[col] = defaults.get(
+                col,
+                "",
+            )
 
     return df
 
 
 # ============================================================
-# UTILITY
+# CONVERSIONI
 # ============================================================
+
+def parse_number(value, default=0.0):
+
+    if value is None:
+        return default
+
+    if isinstance(
+        value,
+        (
+            int,
+            float,
+            np.integer,
+            np.floating,
+        ),
+    ):
+
+        if pd.isna(value):
+            return default
+
+        return float(value)
+
+    text = str(value).strip()
+
+    if not text:
+        return default
+
+    text = (
+        text
+        .replace("€", "")
+        .replace("EUR", "")
+        .replace("eur", "")
+        .replace(" ", "")
+        .strip()
+    )
+
+    try:
+
+        if "," in text and "." in text:
+
+            if text.rfind(",") > text.rfind("."):
+
+                text = text.replace(
+                    ".",
+                    "",
+                )
+
+                text = text.replace(
+                    ",",
+                    ".",
+                )
+
+            else:
+
+                text = text.replace(
+                    ",",
+                    "",
+                )
+
+        elif "," in text:
+
+            text = text.replace(
+                ",",
+                ".",
+            )
+
+        return float(text)
+
+    except Exception:
+
+        return default
+
+
+def parse_hours(value, default=0.0):
+
+    if value is None:
+        return default
+
+    if isinstance(
+        value,
+        (
+            int,
+            float,
+            np.integer,
+            np.floating,
+        ),
+    ):
+
+        if pd.isna(value):
+            return default
+
+        value = float(value)
+
+        if 0 <= value < 1:
+            return value * 24
+
+        return value
+
+    text = str(value).strip()
+
+    if not text:
+        return default
+
+    if ":" in text:
+
+        try:
+
+            parts = text.split(":")
+
+            h = parse_number(
+                parts[0]
+            )
+
+            m = (
+                parse_number(parts[1])
+                if len(parts) > 1
+                else 0
+            )
+
+            s = (
+                parse_number(parts[2])
+                if len(parts) > 2
+                else 0
+            )
+
+            return (
+                h
+                + m / 60
+                + s / 3600
+            )
+
+        except Exception:
+
+            return default
+
+    return parse_number(
+        text,
+        default,
+    )
+
 
 def euro(value):
-    try:
-        return f"€ {float(value):,.0f}".replace(",", ".")
-    except Exception:
-        return "€ 0"
+
+    value = parse_number(value)
+
+    return (
+        f"€ {value:,.2f}"
+        .replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
 
 
-def euro_decimal(value):
-    try:
-        return f"€ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except Exception:
-        return "€ 0,00"
+def number_it(
+    value,
+    decimals=1,
+):
 
+    value = parse_number(value)
 
-def number(value):
-    try:
-        return f"{float(value):,.0f}".replace(",", ".")
-    except Exception:
-        return "0"
-
-
-def hours(value):
-    try:
-        return f"{float(value):,.1f}".replace(",", ".")
-    except Exception:
-        return "0,0"
+    return (
+        f"{value:,.{decimals}f}"
+        .replace(",", "X")
+        .replace(".", ",")
+        .replace("X", ".")
+    )
 
 
 def percent(value):
-    try:
-        return f"{float(value):.1f}%".replace(".", ",")
-    except Exception:
-        return "0,0%"
+
+    value = parse_number(value)
+
+    return (
+        f"{value:.1f}%"
+        .replace(".", ",")
+    )
 
 
-def badge_status(margin, revenue):
+def make_id():
 
-    if revenue <= 0:
-        return '<span class="badge badge-neutral">NESSUN DATO</span>'
-
-    pct = (margin / revenue) * 100
-
-    if pct >= 15:
-        return '<span class="badge badge-ok">OK</span>'
-
-    if pct >= 5:
-        return '<span class="badge badge-warning">ATTENZIONE</span>'
-
-    return '<span class="badge badge-critical">CRITICO</span>'
+    return datetime.now().strftime(
+        "%Y%m%d%H%M%S%f"
+    )
 
 
-def get_authorized_commesse():
+# ============================================================
+# USERS
+# ============================================================
 
-    if st.session_state.get("ruolo") == "admin":
-        return None
+USER_ALIASES = {
 
-    cantieri = st.session_state.get("cantieri", "")
+    "username": [
+        "user",
+        "utente",
+        "login",
+        "nome utente",
+        "userid",
+    ],
 
-    if not cantieri:
+    "password": [
+        "pass",
+        "pwd",
+        "password utente",
+    ],
+
+    "nome": [
+        "name",
+        "nominativo",
+        "nome completo",
+        "operatore",
+        "responsabile",
+    ],
+
+    "ruolo": [
+        "role",
+        "profilo",
+        "tipo utente",
+    ],
+
+    "cantieri": [
+        "cantiere",
+        "commesse",
+        "commessa",
+        "autorizzazioni",
+        "autorizzazione",
+        "cantieri autorizzati",
+        "commesse autorizzate",
+    ],
+}
+
+
+def read_users():
+
+    df = flexible_read_csv(
+        UTENTI_FILE
+    )
+
+    if df.empty:
+
+        if not os.path.exists(
+            UTENTI_FILE
+        ):
+
+            safe_to_csv(
+                DEFAULT_USERS,
+                UTENTI_FILE,
+            )
+
+        return DEFAULT_USERS.copy()
+
+    df = rename_using_aliases(
+        df,
+        USER_ALIASES,
+    )
+
+    required = [
+        "username",
+        "password",
+        "nome",
+        "ruolo",
+        "cantieri",
+    ]
+
+    if not all(
+        col in df.columns
+        for col in required
+    ):
+
+        st.warning(
+            "Il file utenti esistente "
+            "non presenta intestazioni riconoscibili. "
+            "Controlla utenti_cristoforo.csv."
+        )
+
+        return DEFAULT_USERS.copy()
+
+    for col in required:
+
+        df[col] = (
+            df[col]
+            .fillna("")
+            .astype(str)
+            .str.replace(
+                "\ufeff",
+                "",
+                regex=False,
+            )
+            .str.strip()
+        )
+
+    return df[required].copy()
+
+
+def authorized_commesse(row):
+
+    if row is None:
         return []
+
+    raw = str(
+        row.get(
+            "cantieri",
+            "",
+        )
+    ).strip()
+
+    if not raw:
+        return []
+
+    if raw.upper() in [
+        "TUTTI",
+        "ALL",
+        "*",
+    ]:
+        return ["TUTTI"]
+
+    raw = raw.replace(
+        ";",
+        ",",
+    )
 
     return [
         x.strip()
-        for x in str(cantieri).split(",")
+        for x in raw.split(",")
         if x.strip()
     ]
 
 
-def filter_authorized(df, column="Cantiere"):
+def is_admin():
 
-    if df.empty or column not in df.columns:
-        return df
-
-    authorized = get_authorized_commesse()
-
-    if authorized is None:
-        return df
-
-    return df[df[column].isin(authorized)].copy()
-
-
-def make_id():
-    return datetime.now().strftime("%Y%m%d%H%M%S%f")
+    return (
+        st.session_state
+        .get("ruolo", "")
+        .lower()
+        in [
+            "admin",
+            "direzione",
+            "amministratore",
+        ]
+    )
 
 
 # ============================================================
-# SESSIONE
+# SERVIZI CSV
 # ============================================================
 
-ensure_files()
+SERVICE_ALIASES = {
+
+    "ID": [
+        "id servizio",
+        "id",
+        "codice",
+        "codice servizio",
+    ],
+
+    "Data": [
+        "data servizio",
+        "giorno",
+        "data",
+    ],
+
+    "Cantiere": [
+        "commessa",
+        "commessa/cantiere",
+        "cantiere",
+        "cliente",
+        "sede",
+        "territorio",
+    ],
+
+    "Categoria": [
+        "categoria servizio",
+        "tipologia",
+        "tipo servizio",
+        "servizio",
+    ],
+
+    "Dettaglio": [
+        "dettaglio servizio",
+        "sottocategoria",
+        "descrizione",
+        "attivita",
+        "attività",
+        "territorio servizio",
+    ],
+
+    "Tonnellate": [
+        "ton",
+        "tons",
+        "tonnellata",
+        "tonnellate raccolte",
+        "peso",
+        "quantita ton",
+        "quantità ton",
+    ],
+
+    "Ricavo": [
+        "ricavi",
+        "revenue",
+        "fatturato",
+        "ricavo netto",
+        "ricavo €",
+        "ricavi €",
+        "ricavo (€)",
+    ],
+
+    "Costo": [
+        "costi",
+        "costo totale",
+        "costo totale €",
+        "costo €",
+        "costo (€)",
+    ],
+
+    "Margine": [
+        "margine netto",
+        "margine netto €",
+        "margine netto (€)",
+        "margine €",
+        "utile",
+        "profitto",
+    ],
+
+    "Ore Personale": [
+        "ore personale",
+        "ore uomo",
+        "ore operatori",
+        "ore lavoro",
+        "ore",
+    ],
+
+    "Ore Mezzi": [
+        "ore mezzi",
+        "ore veicoli",
+        "ore mezzo",
+    ],
+}
+
+
+def read_services():
+
+    df = flexible_read_csv(
+        SERVIZI_FILE
+    )
+
+    required = [
+        "ID",
+        "Data",
+        "Cantiere",
+        "Categoria",
+        "Dettaglio",
+        "Tonnellate",
+        "Ricavo",
+        "Costo",
+        "Margine",
+        "Ore Personale",
+        "Ore Mezzi",
+    ]
+
+    if df.empty:
+
+        return pd.DataFrame(
+            columns=required
+        )
+
+    df = rename_using_aliases(
+        df,
+        SERVICE_ALIASES,
+    )
+
+    df = ensure_columns(
+        df,
+        required,
+    )
+
+    df["ID"] = (
+        df["ID"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    for col in [
+        "Cantiere",
+        "Categoria",
+        "Dettaglio",
+    ]:
+
+        df[col] = (
+            df[col]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+    df["Data"] = pd.to_datetime(
+        df["Data"],
+        dayfirst=True,
+        errors="coerce",
+    )
+
+    for col in [
+        "Tonnellate",
+        "Ricavo",
+        "Costo",
+        "Margine",
+        "Ore Personale",
+        "Ore Mezzi",
+    ]:
+
+        df[col] = df[col].apply(
+            parse_number
+        )
+
+    # Calcolo automatico margine
+    if "Margine" in df.columns:
+
+        mask = (
+            (df["Margine"] == 0)
+            &
+            (
+                (df["Ricavo"] != 0)
+                |
+                (df["Costo"] != 0)
+            )
+        )
+
+        df.loc[
+            mask,
+            "Margine"
+        ] = (
+            df.loc[
+                mask,
+                "Ricavo"
+            ]
+            -
+            df.loc[
+                mask,
+                "Costo"
+            ]
+        )
+
+    return df
+
+
+# ============================================================
+# ORE
+# ============================================================
+
+ORE_ALIASES = {
+
+    "ID": [
+        "id",
+        "id turno",
+        "codice",
+    ],
+
+    "Data": [
+        "data turno",
+        "giorno",
+        "data",
+    ],
+
+    "Operatore": [
+        "nome operatore",
+        "dipendente",
+        "addetto",
+        "nome",
+    ],
+
+    "Cantiere": [
+        "commessa",
+        "cantiere",
+        "commessa/cantiere",
+    ],
+
+    "Ore": [
+        "ore lavorate",
+        "ore lavoro",
+        "ore totali",
+        "ore",
+        "durata",
+    ],
+
+    "Ore Extra": [
+        "extra",
+        "ore straordinarie",
+        "straordinario",
+        "ore extra",
+    ],
+
+    "Tipo": [
+        "tipologia",
+        "tipo turno",
+        "servizio",
+    ],
+}
+
+
+def read_hours():
+
+    df = flexible_read_csv(
+        ORE_FILE
+    )
+
+    required = [
+        "ID",
+        "Data",
+        "Operatore",
+        "Cantiere",
+        "Ore",
+        "Ore Extra",
+        "Tipo",
+    ]
+
+    if df.empty:
+
+        return pd.DataFrame(
+            columns=required
+        )
+
+    df = rename_using_aliases(
+        df,
+        ORE_ALIASES,
+    )
+
+    df = ensure_columns(
+        df,
+        required,
+    )
+
+    for col in [
+        "ID",
+        "Operatore",
+        "Cantiere",
+        "Tipo",
+    ]:
+
+        df[col] = (
+            df[col]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+    df["Data"] = pd.to_datetime(
+        df["Data"],
+        dayfirst=True,
+        errors="coerce",
+    )
+
+    df["Ore"] = df["Ore"].apply(
+        parse_hours
+    )
+
+    df["Ore Extra"] = df[
+        "Ore Extra"
+    ].apply(
+        parse_hours
+    )
+
+    return df
+
+
+# ============================================================
+# OPERATORI
+# ============================================================
+
+OPERATORI_ALIASES = {
+
+    "Matricola": [
+        "matricola",
+        "id",
+        "codice",
+        "codice operatore",
+    ],
+
+    "Nome": [
+        "nome operatore",
+        "nominativo",
+        "dipendente",
+        "operatore",
+    ],
+
+    "Cognome": [
+        "cognome",
+    ],
+
+    "Livello": [
+        "livello",
+        "livello contrattuale",
+        "qualifica",
+        "ccnl",
+    ],
+
+    "Cantiere": [
+        "commessa",
+        "cantiere",
+        "sede",
+    ],
+
+    "Costo Orario": [
+        "costo orario",
+        "costo ora",
+        "costo/h",
+        "costo orario €",
+    ],
+}
+
+
+def read_operators():
+
+    df = flexible_read_csv(
+        OPERATORI_FILE
+    )
+
+    required = [
+        "Matricola",
+        "Nome",
+        "Cognome",
+        "Livello",
+        "Cantiere",
+        "Costo Orario",
+    ]
+
+    if df.empty:
+
+        return pd.DataFrame(
+            columns=required
+        )
+
+    df = rename_using_aliases(
+        df,
+        OPERATORI_ALIASES,
+    )
+
+    df = ensure_columns(
+        df,
+        required,
+    )
+
+    for col in [
+        "Matricola",
+        "Nome",
+        "Cognome",
+        "Livello",
+        "Cantiere",
+    ]:
+
+        df[col] = (
+            df[col]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+    df["Costo Orario"] = (
+        df["Costo Orario"]
+        .apply(parse_number)
+    )
+
+    return df
+
+
+# ============================================================
+# MEZZI
+# ============================================================
+
+MEZZI_ALIASES = {
+
+    "Targa": [
+        "targa mezzo",
+        "targa",
+        "matricola mezzo",
+        "id mezzo",
+    ],
+
+    "Mezzo": [
+        "descrizione mezzo",
+        "nome mezzo",
+        "veicolo",
+        "mezzo",
+    ],
+
+    "Categoria": [
+        "categoria mezzo",
+        "tipologia",
+        "tipo",
+        "classe",
+    ],
+
+    "Cantiere": [
+        "commessa",
+        "cantiere",
+        "sede",
+    ],
+
+    "Costo Orario": [
+        "costo orario",
+        "costo ora",
+        "costo/h",
+        "costo orario €",
+    ],
+}
+
+
+def read_vehicles():
+
+    df = flexible_read_csv(
+        MEZZI_FILE
+    )
+
+    required = [
+        "Targa",
+        "Mezzo",
+        "Categoria",
+        "Cantiere",
+        "Costo Orario",
+    ]
+
+    if df.empty:
+
+        return pd.DataFrame(
+            columns=required
+        )
+
+    df = rename_using_aliases(
+        df,
+        MEZZI_ALIASES,
+    )
+
+    df = ensure_columns(
+        df,
+        required,
+    )
+
+    for col in [
+        "Targa",
+        "Mezzo",
+        "Categoria",
+        "Cantiere",
+    ]:
+
+        df[col] = (
+            df[col]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+    df["Costo Orario"] = (
+        df["Costo Orario"]
+        .apply(parse_number)
+    )
+
+    return df
+
+
+# ============================================================
+# TARIFFE
+# ============================================================
+
+TARIFFE_ALIASES = {
+
+    "Categoria": [
+        "categoria",
+        "gruppo",
+        "tipo",
+    ],
+
+    "Voce": [
+        "voce",
+        "livello",
+        "descrizione",
+        "tipo mezzo",
+    ],
+
+    "Costo": [
+        "costo",
+        "tariffa",
+        "valore",
+        "costo orario",
+        "importo",
+    ],
+}
+
+
+def read_tariffe():
+
+    df = flexible_read_csv(
+        TARIFFE_FILE
+    )
+
+    if df.empty:
+
+        if not os.path.exists(
+            TARIFFE_FILE
+        ):
+
+            safe_to_csv(
+                DEFAULT_TARIFFE,
+                TARIFFE_FILE,
+            )
+
+        return DEFAULT_TARIFFE.copy()
+
+    df = rename_using_aliases(
+        df,
+        TARIFFE_ALIASES,
+    )
+
+    required = [
+        "Categoria",
+        "Voce",
+        "Costo",
+    ]
+
+    if not all(
+        x in df.columns
+        for x in required
+    ):
+
+        st.warning(
+            "Il tariffario esistente non è "
+            "riconoscibile. Viene usato il "
+            "tariffario standard."
+        )
+
+        return DEFAULT_TARIFFE.copy()
+
+    df["Categoria"] = (
+        df["Categoria"]
+        .astype(str)
+        .str.strip()
+    )
+
+    df["Voce"] = (
+        df["Voce"]
+        .astype(str)
+        .str.strip()
+    )
+
+    df["Costo"] = (
+        df["Costo"]
+        .apply(parse_number)
+    )
+
+    return df[required].copy()
+
+
+def tariff(
+    tariffe,
+    categoria,
+    voce,
+    default=0,
+):
+
+    if tariffe.empty:
+        return default
+
+    mask = (
+        tariffe["Categoria"]
+        .astype(str)
+        .str.lower()
+        .str.strip()
+        ==
+        categoria.lower().strip()
+    ) & (
+        tariffe["Voce"]
+        .astype(str)
+        .str.lower()
+        .str.strip()
+        ==
+        voce.lower().strip()
+    )
+
+    result = tariffe.loc[
+        mask,
+        "Costo",
+    ]
+
+    if result.empty:
+        return default
+
+    return parse_number(
+        result.iloc[0],
+        default,
+    )
+
+
+# ============================================================
+# AUTORIZZAZIONI
+# ============================================================
+
+def filter_authorized(
+    df,
+    column="Cantiere",
+):
+
+    if df is None or df.empty:
+        return df
+
+    if is_admin():
+        return df.copy()
+
+    authorized = (
+        st.session_state
+        .get("cantieri", [])
+    )
+
+    if "TUTTI" in authorized:
+        return df.copy()
+
+    if column not in df.columns:
+        return df.iloc[0:0].copy()
+
+    authorized_clean = {
+        str(x)
+        .strip()
+        .lower()
+        for x in authorized
+    }
+
+    return df[
+        df[column]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .isin(authorized_clean)
+    ].copy()
+
+
+def available_commesse(df):
+
+    # Partiamo dalle commesse definite
+    # nella struttura dei servizi.
+    standard = set(
+        COMMESSE_STANDARD
+    )
+
+    # Aggiungiamo eventuali commesse
+    # già presenti nello storico.
+    if (
+        df is not None
+        and not df.empty
+        and "Cantiere" in df.columns
+    ):
+
+        standard.update(
+            [
+                str(x).strip()
+                for x in df["Cantiere"]
+                .dropna()
+                .unique()
+                if str(x).strip()
+            ]
+        )
+
+    values = sorted(
+        standard
+    )
+
+    if is_admin():
+        return values
+
+    authorized = (
+        st.session_state
+        .get("cantieri", [])
+    )
+
+    if "TUTTI" in authorized:
+        return values
+
+    authorized_lower = {
+        str(x).lower().strip()
+        for x in authorized
+    }
+
+    return [
+        x
+        for x in values
+        if x.lower().strip()
+        in authorized_lower
+    ]
+
+
+# ============================================================
+# STORICO
+# ============================================================
+
+def aggiorna_storico(
+    df_nuovo,
+    path,
+    id_column="ID",
+):
+
+    if (
+        df_nuovo is None
+        or df_nuovo.empty
+    ):
+        return False
+
+    storico = flexible_read_csv(
+        path
+    )
+
+    if storico.empty:
+
+        return safe_to_csv(
+            df_nuovo,
+            path,
+        )
+
+    storico = normalize_columns(
+        storico
+    )
+
+    df_nuovo = normalize_columns(
+        df_nuovo
+    )
+
+    if (
+        id_column in storico.columns
+        and
+        id_column in df_nuovo.columns
+    ):
+
+        storico[id_column] = (
+            storico[id_column]
+            .astype(str)
+        )
+
+        df_nuovo[id_column] = (
+            df_nuovo[id_column]
+            .astype(str)
+        )
+
+        combinato = pd.concat(
+            [
+                storico,
+                df_nuovo,
+            ],
+            ignore_index=True,
+        )
+
+        combinato = (
+            combinato
+            .drop_duplicates(
+                subset=[id_column],
+                keep="last",
+            )
+        )
+
+    else:
+
+        combinato = pd.concat(
+            [
+                storico,
+                df_nuovo,
+            ],
+            ignore_index=True,
+        )
+
+    return safe_to_csv(
+        combinato,
+        path,
+    )
+
+
+# ============================================================
+# CREA FILE MINIMI
+# ============================================================
+
+if not os.path.exists(
+    UTENTI_FILE
+):
+
+    safe_to_csv(
+        DEFAULT_USERS,
+        UTENTI_FILE,
+    )
+
+
+if not os.path.exists(
+    TARIFFE_FILE
+):
+
+    safe_to_csv(
+        DEFAULT_TARIFFE,
+        TARIFFE_FILE,
+    )
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
 
 if "loggato" not in st.session_state:
     st.session_state.loggato = False
@@ -623,7 +1859,7 @@ if "ruolo" not in st.session_state:
     st.session_state.ruolo = ""
 
 if "cantieri" not in st.session_state:
-    st.session_state.cantieri = ""
+    st.session_state.cantieri = []
 
 
 # ============================================================
@@ -632,36 +1868,92 @@ if "cantieri" not in st.session_state:
 
 if not st.session_state.loggato:
 
-    st.markdown('<div class="login-wrapper">', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="login-box">
 
-    st.markdown("""
-    <div class="login-card">
-        <div style="font-size:38px;">♻️</div>
-        <div class="login-title">Cristoforo Control Room</div>
-        <div class="login-subtitle">
-            Accesso al sistema operativo ed economico
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+            <div class="brand">
 
-    with st.form("login_form"):
+                <div class="brand-mark">
+                    ♻
+                </div>
 
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+                <div>
+                    <div class="brand-name">
+                        Cristoforo
+                    </div>
 
-        submitted = st.form_submit_button(
-            "Accedi alla Control Room",
-            use_container_width=True,
-            type="primary"
+                    <div class="brand-role">
+                        Control Room
+                    </div>
+                </div>
+
+            </div>
+
+            <br>
+
+            <div class="login-title">
+                Accesso operativo
+            </div>
+
+            <div class="login-subtitle">
+                Ore, commesse e controllo economico.
+            </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.form(
+        "login_form"
+    ):
+
+        username = st.text_input(
+            "Username",
+            placeholder="Inserisci username",
         )
 
-        if submitted:
+        password = st.text_input(
+            "Password",
+            type="password",
+            placeholder="Inserisci password",
+        )
+
+        login = st.form_submit_button(
+            "Accedi alla Control Room",
+            use_container_width=True,
+            type="primary",
+        )
+
+        if login:
 
             users = read_users()
 
+            username_clean = (
+                str(username)
+                .strip()
+            )
+
+            password_clean = (
+                str(password)
+                .strip()
+            )
+
             match = users[
-                (users["username"].astype(str) == username) &
-                (users["password"].astype(str) == password)
+                (
+                    users["username"]
+                    .astype(str)
+                    .str.strip()
+                    ==
+                    username_clean
+                )
+                &
+                (
+                    users["password"]
+                    .astype(str)
+                    .str.strip()
+                    ==
+                    password_clean
+                )
             ]
 
             if not match.empty:
@@ -669,27 +1961,62 @@ if not st.session_state.loggato:
                 row = match.iloc[0]
 
                 st.session_state.loggato = True
-                st.session_state.utente = row["username"]
-                st.session_state.nome_utente = row.get("nome", row["username"])
-                st.session_state.ruolo = row.get("ruolo", "capocantiere")
-                st.session_state.cantieri = row.get("cantieri", "")
+
+                st.session_state.utente = (
+                    username_clean
+                )
+
+                st.session_state.nome_utente = (
+                    str(
+                        row.get(
+                            "nome",
+                            username_clean,
+                        )
+                    ).strip()
+                )
+
+                st.session_state.ruolo = (
+                    str(
+                        row.get(
+                            "ruolo",
+                            "capocantiere",
+                        )
+                    ).strip()
+                )
+
+                st.session_state.cantieri = (
+                    authorized_commesse(
+                        row
+                    )
+                )
 
                 st.rerun()
 
             else:
-                st.error("Username o password non corretti.")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+                st.error(
+                    "Username o password non corretti."
+                )
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
     st.stop()
 
 
 # ============================================================
-# DATI
+# CARICAMENTO DATI
 # ============================================================
 
+users = read_users()
 servizi = read_services()
-servizi = filter_authorized(servizi)
+ore = read_hours()
+operatori = read_operators()
+mezzi = read_vehicles()
+tariffe = read_tariffe()
+
 
 # ============================================================
 # SIDEBAR
@@ -697,84 +2024,86 @@ servizi = filter_authorized(servizi)
 
 with st.sidebar:
 
-    logo_path = os.path.join(BASE_DIR, "Cristoforo_2025_no-ONLUS.png")
-
-    if os.path.exists(logo_path):
-        st.image(logo_path, width=170)
-
     st.markdown(
-        '<div class="sidebar-title">Control Room</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        f"""
-        <div class="sidebar-user">
-            <div class="sidebar-user-name">
-                ● {st.session_state.nome_utente}
-            </div>
-            <div class="sidebar-user-role">
-                {st.session_state.ruolo.upper()}
-            </div>
+        """
+        <div style="
+            padding:8px 4px 20px 4px;
+            font-size:18px;
+            font-weight:800;
+        ">
+            ♻️ Cristoforo
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
-    if st.session_state.ruolo == "admin":
+    st.caption(
+        f"{st.session_state.nome_utente} · "
+        f"{st.session_state.ruolo}"
+    )
 
-        menu_options = [
-            "Overview",
-            "Commesse",
-            "Validazione Turni",
-            "Ore",
-            "Centro di Costo",
+    st.divider()
+
+    menu_options = [
+        "Overview",
+        "Commesse",
+        "Validazione Turni",
+        "Ore",
+        "Centro di Costo",
+        "Mezzi",
+        "Report",
+    ]
+
+    if is_admin():
+
+        menu_options += [
             "Anagrafiche",
-            "Mezzi",
-            "Report",
-            "Gestione Accessi"
+            "Gestione Accessi",
         ]
+
+    pagina = st.radio(
+        "Navigazione",
+        menu_options,
+        label_visibility="collapsed",
+    )
+
+    st.divider()
+
+    st.caption(
+        "COMMESSE AUTORIZZATE"
+    )
+
+    if "TUTTI" in st.session_state.cantieri:
+
+        st.success(
+            "Accesso completo"
+        )
 
     else:
 
-        menu_options = [
-            "Overview",
-            "Commesse",
-            "Validazione Turni",
-            "Ore",
-            "Centro di Costo",
-            "Mezzi",
-            "Report"
-        ]
+        for c in st.session_state.cantieri:
 
-    if "pagina" not in st.session_state:
-        st.session_state.pagina = "Overview"
+            st.caption(
+                f"• {c}"
+            )
 
-    for item in menu_options:
-
-        if st.button(
-            item,
-            key=f"menu_{item}",
-            use_container_width=True,
-            type="primary" if st.session_state.pagina == item else "secondary"
-        ):
-            st.session_state.pagina = item
-            st.rerun()
-
-    st.markdown("---")
+    st.divider()
 
     if st.button(
         "Esci",
-        use_container_width=True
+        use_container_width=True,
     ):
+
         for key in [
             "loggato",
             "utente",
             "nome_utente",
             "ruolo",
-            "cantieri"
+            "cantieri",
         ]:
-            st.session_state[key] = False if key == "loggato" else ""
+
+            if key in st.session_state:
+                del st.session_state[key]
 
         st.rerun()
 
@@ -786,191 +2115,326 @@ with st.sidebar:
 st.markdown(
     f"""
     <div class="top-header">
-        <div>
-            <div class="eyebrow">CRISTOFORO · OPERATIONS</div>
-            <div class="page-title">{st.session_state.pagina}</div>
-            <div class="page-subtitle">
-                Controllo operativo, ore e gestione economica delle commesse
+
+        <div class="brand">
+
+            <div class="brand-mark">
+                ♻
             </div>
+
+            <div>
+
+                <div class="brand-name">
+                    Control Room
+                </div>
+
+                <div class="brand-role">
+                    Hub operativo · gestione economica
+                </div>
+
+            </div>
+
         </div>
-        <div class="user-pill">
-            ● {st.session_state.nome_utente}
+
+        <div style="
+            text-align:right;
+            font-size:13px;
+            color:#6b7280;
+        ">
+
+            <strong>
+                {st.session_state.nome_utente}
+            </strong>
+
+            <br>
+
+            {st.session_state.ruolo}
+
         </div>
+
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# FILTRO GLOBALE
+# FILTRI GLOBALI
 # ============================================================
 
-if not servizi.empty and "Cantiere" in servizi.columns:
+commesse_disponibili = (
+    available_commesse(servizi)
+)
 
-    available_commesse = sorted(
-        servizi["Cantiere"]
-        .dropna()
-        .astype(str)
-        .unique()
-        .tolist()
+if commesse_disponibili:
+
+    c1, c2 = st.columns(
+        [2.2, 1]
     )
 
-else:
-    available_commesse = []
+    with c1:
 
-authorized = get_authorized_commesse()
-
-if authorized is not None:
-    available_commesse = [
-        x for x in available_commesse
-        if x in authorized
-    ]
-
-filter_col1, filter_col2, filter_col3 = st.columns([2.2, 1.4, 1.4])
-
-with filter_col1:
-
-    if available_commesse:
-
-        selected_commessa = st.selectbox(
-            "COMMESSA",
-            ["Tutte le commesse"] + available_commesse,
-            key="global_commessa"
+        commessa_filter = st.selectbox(
+            "Commessa / Territorio",
+            [
+                "Tutte le commesse"
+            ]
+            +
+            commesse_disponibili,
         )
 
-    else:
-        selected_commessa = "Tutte le commesse"
+    with c2:
 
-with filter_col2:
+        periodo = st.selectbox(
+            "Periodo",
+            [
+                "Tutto lo storico",
+                "Ultimi 7 giorni",
+                "Ultimi 30 giorni",
+                "Ultimi 90 giorni",
+                "Anno corrente",
+            ],
+        )
 
-    periodo = st.selectbox(
-        "PERIODO",
-        [
-            "Tutto",
-            "Ultimi 7 giorni",
-            "Ultimi 30 giorni",
-            "Ultimi 90 giorni"
-        ],
-        key="global_periodo"
+else:
+
+    commessa_filter = (
+        "Tutte le commesse"
     )
 
-with filter_col3:
-
-    oggi = datetime.now().strftime("%d/%m/%Y")
-
-    st.markdown(
-        f"""
-        <div style="padding-top:28px;color:#6b7280;font-size:12px;">
-            AGGIORNATO<br>
-            <strong style="color:#111827">{oggi}</strong>
-        </div>
-        """,
-        unsafe_allow_html=True
+    periodo = (
+        "Tutto lo storico"
     )
 
 
 # ============================================================
-# APPLICA FILTRI
+# FILTRO SERVIZI
 # ============================================================
 
-df = servizi.copy()
+servizi_view = filter_authorized(
+    servizi
+)
 
-if selected_commessa != "Tutte le commesse" and "Cantiere" in df.columns:
-    df = df[df["Cantiere"] == selected_commessa].copy()
+if (
+    commessa_filter
+    != "Tutte le commesse"
+):
 
-if "Data" in df.columns:
+    servizi_view = servizi_view[
+        servizi_view["Cantiere"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        ==
+        commessa_filter
+        .strip()
+        .lower()
+    ]
 
-    oggi_dt = pd.Timestamp.today()
+
+if (
+    not servizi_view.empty
+    and
+    "Data" in servizi_view.columns
+):
+
+    oggi = pd.Timestamp.today().normalize()
 
     if periodo == "Ultimi 7 giorni":
-        df = df[df["Data"] >= oggi_dt - pd.Timedelta(days=7)]
+
+        servizi_view = servizi_view[
+            servizi_view["Data"]
+            >=
+            oggi
+            -
+            pd.Timedelta(days=7)
+        ]
 
     elif periodo == "Ultimi 30 giorni":
-        df = df[df["Data"] >= oggi_dt - pd.Timedelta(days=30)]
+
+        servizi_view = servizi_view[
+            servizi_view["Data"]
+            >=
+            oggi
+            -
+            pd.Timedelta(days=30)
+        ]
 
     elif periodo == "Ultimi 90 giorni":
-        df = df[df["Data"] >= oggi_dt - pd.Timedelta(days=90)]
+
+        servizi_view = servizi_view[
+            servizi_view["Data"]
+            >=
+            oggi
+            -
+            pd.Timedelta(days=90)
+        ]
+
+    elif periodo == "Anno corrente":
+
+        servizi_view = servizi_view[
+            servizi_view["Data"].dt.year
+            ==
+            oggi.year
+        ]
 
 
 # ============================================================
-# PAGE: OVERVIEW
+# HERO
 # ============================================================
 
-if st.session_state.pagina == "Overview":
+hero_name = (
+    commessa_filter
+    if commessa_filter
+    != "Tutte le commesse"
+    else "Portafoglio commesse"
+)
 
-    if selected_commessa == "Tutte le commesse":
+st.markdown(
+    f"""
+    <div class="commessa-hero">
 
-        commessa_display = "Tutte le commesse autorizzate"
+        <div class="commessa-kicker">
+            Area operativa
+        </div>
 
-    else:
+        <div class="commessa-name">
+            {hero_name}
+        </div>
 
-        commessa_display = selected_commessa
+        <div class="commessa-meta">
+            Periodo: {periodo}
+            ·
+            {len(servizi_view)}
+            registrazioni economiche
+        </div>
+
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# OVERVIEW
+# ============================================================
+
+if pagina == "Overview":
 
     st.markdown(
-        f"""
-        <div class="commessa-box">
-            <div class="commessa-label">Vista operativa</div>
-            <div class="commessa-name">{commessa_display}</div>
-        </div>
-        """,
-        unsafe_allow_html=True
+        '<div class="page-title">'
+        'Sintesi direzionale'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
-    # KPI
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Quadro sintetico di ricavi, costi, '
+        'marginalità e attività operative.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
-    ricavi = df["Ricavi"].sum() if "Ricavi" in df.columns else 0
-    costi = df["Costo Totale"].sum() if "Costo Totale" in df.columns else 0
-    margine = df["Margine Netto"].sum() if "Margine Netto" in df.columns else ricavi - costi
-    tonnellate = df["Tonnellate"].sum() if "Tonnellate" in df.columns else 0
-    ore_personale = df["Ore Personale"].sum() if "Ore Personale" in df.columns else 0
-    ore_mezzi = df["Ore Mezzi"].sum() if "Ore Mezzi" in df.columns else 0
+    ricavi = servizi_view[
+        "Ricavo"
+    ].sum()
 
-    margine_pct = (margine / ricavi * 100) if ricavi else 0
+    costi = servizi_view[
+        "Costo"
+    ].sum()
+
+    margine = servizi_view[
+        "Margine"
+    ].sum()
+
+    ton = servizi_view[
+        "Tonnellate"
+    ].sum()
+
+    ore_personale = servizi_view[
+        "Ore Personale"
+    ].sum()
+
+    ore_mezzi = servizi_view[
+        "Ore Mezzi"
+    ].sum()
+
+    margine_pct = (
+        margine / ricavi * 100
+        if ricavi != 0
+        else 0
+    )
 
     k1, k2, k3, k4 = st.columns(4)
 
     with k1:
+
         st.markdown(
             f"""
             <div class="kpi-card">
-                <div class="kpi-label">Ricavi</div>
-                <div class="kpi-value green">{euro(ricavi)}</div>
-                <div class="kpi-meta">Valore servizi registrati</div>
+
+                <div class="kpi-label">
+                    Ricavi
+                </div>
+
+                <div class="kpi-value">
+                    {euro(ricavi)}
+                </div>
+
+                <div class="kpi-caption">
+                    fatturato del periodo
+                </div>
+
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
     with k2:
+
         st.markdown(
             f"""
             <div class="kpi-card">
-                <div class="kpi-label">Costi</div>
-                <div class="kpi-value">{euro(costi)}</div>
-                <div class="kpi-meta">Costo operativo complessivo</div>
+
+                <div class="kpi-label">
+                    Costi
+                </div>
+
+                <div class="kpi-value">
+                    {euro(costi)}
+                </div>
+
+                <div class="kpi-caption">
+                    costi operativi
+                </div>
+
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
     with k3:
 
-        margin_class = "green" if margine >= 0 else "red"
-
         st.markdown(
             f"""
             <div class="kpi-card">
-                <div class="kpi-label">Margine netto</div>
-                <div class="kpi-value {margin_class}">
+
+                <div class="kpi-label">
+                    Margine
+                </div>
+
+                <div class="kpi-value">
                     {euro(margine)}
                 </div>
-                <div class="kpi-meta">
-                    Margine operativo · {percent(margine_pct)}
+
+                <div class="kpi-caption">
+                    marginalità {percent(margine_pct)}
                 </div>
+
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
     with k4:
@@ -978,1150 +2442,1786 @@ if st.session_state.pagina == "Overview":
         st.markdown(
             f"""
             <div class="kpi-card">
-                <div class="kpi-label">Tonnellate</div>
-                <div class="kpi-value">{number(tonnellate)}</div>
-                <div class="kpi-meta">
-                    Ore personale: {hours(ore_personale)}
+
+                <div class="kpi-label">
+                    Tonnellate
                 </div>
+
+                <div class="kpi-value">
+                    {number_it(ton)}
+                </div>
+
+                <div class="kpi-caption">
+                    materiale gestito
+                </div>
+
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
-    # Stato
+    st.write("")
 
-    st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Stato economico</div>
-                <div class="section-description">
-                    Lettura sintetica della redditività della selezione corrente
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
+    # --------------------------------------------------------
+    # TREND
+    # --------------------------------------------------------
+
+    c1, c2 = st.columns(
+        [1.7, 1]
     )
-
-    c1, c2 = st.columns([1.4, 1])
 
     with c1:
 
-        if not df.empty and "Data" in df.columns:
+        st.markdown(
+            """
+            <div class="panel">
+
+                <div class="panel-title">
+                    Andamento economico
+                </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if not servizi_view.empty:
 
             trend = (
-                df.dropna(subset=["Data"])
-                .groupby(df["Data"].dt.date)
-                .agg(
-                    Ricavi=("Ricavi", "sum"),
-                    Costi=("Costo Totale", "sum"),
-                    Margine=("Margine Netto", "sum")
+                servizi_view
+                .dropna(subset=["Data"])
+                .groupby(
+                    "Data",
+                    as_index=False,
                 )
-                .reset_index()
-                .rename(columns={"Data": "Giorno"})
+                .agg({
+                    "Ricavo": "sum",
+                    "Costo": "sum",
+                    "Margine": "sum",
+                })
+                .sort_values("Data")
             )
 
             if not trend.empty:
 
-                st.markdown('<div class="panel">', unsafe_allow_html=True)
-
-                st.markdown(
-                    "**Andamento economico**"
+                trend = trend.set_index(
+                    "Data"
                 )
-
-                chart_df = trend.set_index("Data" if "Data" in trend.columns else trend.columns[0])
 
                 st.line_chart(
-                    chart_df[["Ricavi", "Costi", "Margine"]],
-                    use_container_width=True
+                    trend[
+                        [
+                            "Ricavo",
+                            "Costo",
+                            "Margine",
+                        ]
+                    ],
+                    height=280,
                 )
 
-                st.markdown('</div>', unsafe_allow_html=True)
+            else:
+
+                st.info(
+                    "Nessun dato temporale disponibile."
+                )
 
         else:
 
-            st.info("Non ci sono ancora dati economici da visualizzare.")
+            st.info(
+                "Nessun dato disponibile."
+            )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
     with c2:
 
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-
-        st.markdown("**Stato operativo**")
-
         st.markdown(
-            badge_status(margine, ricavi),
-            unsafe_allow_html=True
+            """
+            <div class="panel">
+
+                <div class="panel-title">
+                    Stato economico
+                </div>
+            """,
+            unsafe_allow_html=True,
         )
 
-        st.markdown("")
+        if margine_pct >= 20:
+
+            st.markdown(
+                '<span class="badge badge-ok">'
+                'OK'
+                '</span>',
+                unsafe_allow_html=True,
+            )
+
+        elif margine_pct >= 0:
+
+            st.markdown(
+                '<span class="badge badge-warning">'
+                'ATTENZIONE'
+                '</span>',
+                unsafe_allow_html=True,
+            )
+
+        else:
+
+            st.markdown(
+                '<span class="badge badge-critical">'
+                'CRITICO'
+                '</span>',
+                unsafe_allow_html=True,
+            )
+
+        st.write("")
 
         st.metric(
             "Margine %",
-            percent(margine_pct)
+            percent(margine_pct),
+        )
+
+        st.metric(
+            "Ore personale",
+            number_it(ore_personale),
         )
 
         st.metric(
             "Ore mezzi",
-            hours(ore_mezzi)
+            number_it(ore_mezzi),
         )
 
-        if tonnellate:
-            st.metric(
-                "Costo / ton",
-                euro_decimal(costi / tonnellate)
-            )
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Centro di costo
+    # --------------------------------------------------------
+    # CENTRO COSTI
+    # --------------------------------------------------------
 
     st.markdown(
         """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Centro di Costo</div>
-                <div class="section-description">
-                    Composizione dei costi operativi
-                </div>
+        <div class="panel">
+
+            <div class="panel-title">
+                Composizione del costo
             </div>
-        </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
+    )
+
+    if (
+        not operatori.empty
+        and
+        ore_personale > 0
+    ):
+
+        media_personale = (
+            operatori["Costo Orario"]
+            .replace(0, np.nan)
+            .mean()
+        )
+
+        if pd.isna(media_personale):
+            media_personale = 28
+
+        personale_cost = (
+            ore_personale
+            * media_personale
+        )
+
+    else:
+
+        personale_cost = (
+            costi * 0.55
+        )
+
+    if ore_mezzi > 0:
+
+        mezzi_cost = (
+            ore_mezzi * 25
+        )
+
+    else:
+
+        mezzi_cost = (
+            costi * 0.30
+        )
+
+    overhead_cost = max(
+        costi
+        -
+        personale_cost
+        -
+        mezzi_cost,
+        0,
     )
 
     cc1, cc2, cc3 = st.columns(3)
 
-    costo_personale = (
-        df["Costo Personale"].sum()
-        if "Costo Personale" in df.columns
-        else 0
-    )
-
-    costo_mezzi = (
-        df["Costo Mezzi"].sum()
-        if "Costo Mezzi" in df.columns
-        else 0
-    )
-
-    overhead = (
-        df["Overhead"].sum()
-        if "Overhead" in df.columns
-        else 0
-    )
-
     with cc1:
-        st.markdown(
-            f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Personale</div>
-                <div class="kpi-value">{euro(costo_personale)}</div>
-                <div class="kpi-meta">
-                    {hours(ore_personale)} ore
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+
+        st.metric(
+            "Personale",
+            euro(personale_cost),
         )
 
     with cc2:
-        st.markdown(
-            f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Mezzi</div>
-                <div class="kpi-value">{euro(costo_mezzi)}</div>
-                <div class="kpi-meta">
-                    {hours(ore_mezzi)} ore mezzo
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+
+        st.metric(
+            "Mezzi",
+            euro(mezzi_cost),
         )
 
     with cc3:
+
+        st.metric(
+            "Generali / Overhead",
+            euro(overhead_cost),
+        )
+
+    st.markdown(
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------
+    # COMMESSE
+    # --------------------------------------------------------
+
+    if (
+        is_admin()
+        and
+        not servizi_view.empty
+    ):
+
         st.markdown(
-            f"""
-            <div class="kpi-card">
-                <div class="kpi-label">Overhead</div>
-                <div class="kpi-value">{euro(overhead)}</div>
-                <div class="kpi-meta">
-                    Costi indiretti
+            """
+            <div class="panel">
+
+                <div class="panel-title">
+                    Performance per commessa
                 </div>
-            </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
+        )
+
+        commesse = (
+            servizi_view
+            .groupby(
+                "Cantiere",
+                as_index=False,
+            )
+            .agg(
+                Ricavi=("Ricavo", "sum"),
+                Costi=("Costo", "sum"),
+                Margine=("Margine", "sum"),
+                Tonnellate=(
+                    "Tonnellate",
+                    "sum",
+                ),
+            )
+        )
+
+        commesse["Margine %"] = np.where(
+            commesse["Ricavi"] != 0,
+            (
+                commesse["Margine"]
+                /
+                commesse["Ricavi"]
+                * 100
+            ),
+            0,
+        )
+
+        commesse = commesse.sort_values(
+            "Margine",
+            ascending=False,
+        )
+
+        st.dataframe(
+            commesse,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True,
         )
 
 
 # ============================================================
-# PAGE: COMMESSE
+# COMMESSE
 # ============================================================
 
-elif st.session_state.pagina == "Commesse":
+elif pagina == "Commesse":
 
     st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Performance commesse</div>
-                <div class="section-description">
-                    Confronto economico delle commesse autorizzate
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
+        '<div class="page-title">'
+        'Commesse'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Vista economica aggregata delle commesse autorizzate.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    df = filter_authorized(
+        servizi
     )
 
     if df.empty:
 
-        st.info("Non sono presenti dati per il periodo selezionato.")
-
-    elif "Cantiere" not in df.columns:
-
-        st.warning("La colonna Cantiere non è presente nei dati.")
+        st.info(
+            "Non sono presenti dati economici."
+        )
 
     else:
 
         summary = (
-            df.groupby("Cantiere")
-            .agg(
-                Ricavi=("Ricavi", "sum"),
-                Costi=("Costo Totale", "sum"),
-                Margine=("Margine Netto", "sum"),
-                Tonnellate=("Tonnellate", "sum"),
-                Ore=("Ore Personale", "sum")
+            df.groupby(
+                "Cantiere",
+                as_index=False,
             )
-            .reset_index()
+            .agg(
+                Ricavi=("Ricavo", "sum"),
+                Costi=("Costo", "sum"),
+                Margine=("Margine", "sum"),
+                Tonnellate=(
+                    "Tonnellate",
+                    "sum",
+                ),
+                Registrazioni=(
+                    "ID",
+                    "count",
+                ),
+            )
         )
 
         summary["Margine %"] = np.where(
             summary["Ricavi"] != 0,
-            summary["Margine"] / summary["Ricavi"] * 100,
-            0
+            summary["Margine"]
+            /
+            summary["Ricavi"]
+            * 100,
+            0,
         )
 
-        summary["Stato"] = summary.apply(
-            lambda r: "OK"
-            if r["Margine %"] >= 15
-            else "ATTENZIONE"
-            if r["Margine %"] >= 5
-            else "CRITICO",
-            axis=1
+        summary["Costo / Ton"] = np.where(
+            summary["Tonnellate"] != 0,
+            summary["Costi"]
+            /
+            summary["Tonnellate"],
+            0,
         )
-
-        display = summary.copy()
-
-        display["Ricavi"] = display["Ricavi"].map(euro)
-        display["Costi"] = display["Costi"].map(euro)
-        display["Margine"] = display["Margine"].map(euro)
-        display["Margine %"] = display["Margine %"].map(percent)
-        display["Tonnellate"] = display["Tonnellate"].map(number)
-        display["Ore"] = display["Ore"].map(hours)
 
         st.dataframe(
-            display,
+            summary.sort_values(
+                "Margine",
+                ascending=False,
+            ),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+            column_config={
+
+                "Ricavi":
+                    st.column_config.NumberColumn(
+                        "Ricavi",
+                        format="€ %.2f",
+                    ),
+
+                "Costi":
+                    st.column_config.NumberColumn(
+                        "Costi",
+                        format="€ %.2f",
+                    ),
+
+                "Margine":
+                    st.column_config.NumberColumn(
+                        "Margine",
+                        format="€ %.2f",
+                    ),
+
+                "Margine %":
+                    st.column_config.NumberColumn(
+                        "Margine %",
+                        format="%.1f%%",
+                    ),
+
+                "Tonnellate":
+                    st.column_config.NumberColumn(
+                        "Tonnellate",
+                        format="%.1f",
+                    ),
+
+                "Costo / Ton":
+                    st.column_config.NumberColumn(
+                        "Costo / Ton",
+                        format="€ %.2f",
+                    ),
+            },
         )
 
 
 # ============================================================
-# PAGE: VALIDAZIONE TURNI
+# VALIDAZIONE TURNI
 # ============================================================
 
-elif st.session_state.pagina == "Validazione Turni":
+elif pagina == "Validazione Turni":
 
     st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Validazione turni</div>
-                <div class="section-description">
-                    Importazione e controllo delle ore provenienti dai sistemi operativi
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
+        '<div class="page-title">'
+        'Validazione turni'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Importazione e controllo dei dati operativi.'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
     uploaded_file = st.file_uploader(
         "Carica file turni",
-        type=["csv", "xlsx"],
-        help="CSV o Excel con intestazioni sulla seconda riga."
+        type=[
+            "csv",
+            "xlsx",
+        ],
     )
 
     if uploaded_file:
 
-        try:
+        df_upload = pd.DataFrame()
 
-            if uploaded_file.name.lower().endswith(".csv"):
+        if uploaded_file.name.lower().endswith(
+            ".csv"
+        ):
 
-                uploaded_df = pd.read_csv(
+            df_upload = (
+                flexible_read_uploaded_csv(
+                    uploaded_file
+                )
+            )
+
+        elif uploaded_file.name.lower().endswith(
+            ".xlsx"
+        ):
+
+            try:
+
+                uploaded_file.seek(0)
+
+                df_upload = pd.read_excel(
                     uploaded_file,
-                    header=1
+                    header=1,
+                )
+
+                df_upload = (
+                    normalize_columns(
+                        df_upload
+                    )
+                )
+
+            except ImportError:
+
+                st.error(
+                    "Per importare file Excel "
+                    "è necessario installare "
+                    "openpyxl."
+                )
+
+                st.code(
+                    "pip install openpyxl"
+                )
+
+            except Exception as exc:
+
+                st.error(
+                    f"Errore nella lettura del file Excel: "
+                    f"{exc}"
+                )
+
+        if not df_upload.empty:
+
+            st.success(
+                f"File letto correttamente: "
+                f"{len(df_upload)} righe."
+            )
+
+            st.dataframe(
+                df_upload.head(100),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            if st.button(
+                "Salva nello storico ore",
+                type="primary",
+            ):
+
+                df_upload = (
+                    rename_using_aliases(
+                        df_upload,
+                        ORE_ALIASES,
+                    )
+                )
+
+                df_upload = ensure_columns(
+                    df_upload,
+                    [
+                        "ID",
+                        "Data",
+                        "Operatore",
+                        "Cantiere",
+                        "Ore",
+                        "Ore Extra",
+                        "Tipo",
+                    ],
+                )
+
+                df_upload["ID"] = (
+                    df_upload["ID"]
+                    .fillna("")
+                    .astype(str)
+                )
+
+                mask_empty = (
+                    df_upload["ID"]
+                    .str.strip()
+                    == ""
+                )
+
+                for idx in df_upload[
+                    mask_empty
+                ].index:
+
+                    df_upload.loc[
+                        idx,
+                        "ID",
+                    ] = make_id()
+
+                ok = aggiorna_storico(
+                    df_upload,
+                    ORE_FILE,
+                    "ID",
+                )
+
+                if ok:
+
+                    st.success(
+                        "Storico ore aggiornato."
+                    )
+
+                    st.rerun()
+
+                else:
+
+                    st.error(
+                        "Errore nel salvataggio."
+                    )
+
+    st.markdown(
+        "### Storico attuale"
+    )
+
+    storico_ore = filter_authorized(
+        ore
+    )
+
+    if storico_ore.empty:
+
+        st.info(
+            "Nessun turno presente."
+        )
+
+    else:
+
+        st.dataframe(
+            storico_ore.tail(200),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+# ============================================================
+# ORE
+# ============================================================
+
+elif pagina == "Ore":
+
+    st.markdown(
+        '<div class="page-title">'
+        'Cruscotto ore'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Monitoraggio delle ore lavorate e delle anomalie.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    df = filter_authorized(
+        ore
+    )
+
+    if (
+        commessa_filter
+        != "Tutte le commesse"
+        and
+        not df.empty
+    ):
+
+        df = df[
+            df["Cantiere"]
+            .astype(str)
+            .str.lower()
+            .str.strip()
+            ==
+            commessa_filter
+            .lower()
+            .strip()
+        ]
+
+    if df.empty:
+
+        st.info(
+            "Nessun dato ore disponibile."
+        )
+
+    else:
+
+        h1, h2, h3, h4 = st.columns(4)
+
+        with h1:
+
+            st.metric(
+                "Ore lavorate",
+                number_it(
+                    df["Ore"].sum()
+                ),
+            )
+
+        with h2:
+
+            st.metric(
+                "Ore extra",
+                number_it(
+                    df["Ore Extra"].sum()
+                ),
+            )
+
+        with h3:
+
+            st.metric(
+                "Operatori",
+                df["Operatore"].nunique(),
+            )
+
+        with h4:
+
+            st.metric(
+                "Turni",
+                len(df),
+            )
+
+        st.write("")
+
+        c1, c2 = st.columns(2)
+
+        with c1:
+
+            st.markdown(
+                """
+                <div class="panel">
+
+                    <div class="panel-title">
+                        Ore extra per operatore
+                    </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            by_operator = (
+                df.groupby(
+                    "Operatore"
+                )["Ore Extra"]
+                .sum()
+                .sort_values(
+                    ascending=False
+                )
+                .head(10)
+            )
+
+            if not by_operator.empty:
+
+                st.bar_chart(
+                    by_operator,
+                    height=300,
                 )
 
             else:
 
-                try:
-
-                    uploaded_df = pd.read_excel(
-                        uploaded_file,
-                        header=1,
-                        engine="openpyxl"
-                    )
-
-                except ImportError:
-
-                    st.error(
-                        "Per leggere file Excel devi aggiungere "
-                        "`openpyxl` al requirements.txt."
-                    )
-                    st.stop()
-
-            st.success(
-                f"File caricato: {len(uploaded_df)} righe"
-            )
-
-            st.dataframe(
-                uploaded_df.head(100),
-                use_container_width=True,
-                hide_index=True
-            )
-
-            if st.button(
-                "Salva nello storico",
-                type="primary"
-            ):
-
-                storico = load_csv(ORE_FILE)
-
-                if storico.empty:
-                    storico = uploaded_df.copy()
-
-                else:
-                    storico = pd.concat(
-                        [storico, uploaded_df],
-                        ignore_index=True
-                    )
-
-                # Deduplica se presente ID
-                if "ID" in storico.columns:
-                    storico = storico.drop_duplicates(
-                        subset=["ID"],
-                        keep="last"
-                    )
-
-                storico.to_csv(
-                    ORE_FILE,
-                    index=False
+                st.info(
+                    "Nessun dato."
                 )
 
-                st.success("Storico aggiornato.")
-                st.rerun()
-
-        except Exception as exc:
-
-            st.error(
-                f"Errore durante la lettura del file: {exc}"
+            st.markdown(
+                "</div>",
+                unsafe_allow_html=True,
             )
 
+        with c2:
 
-# ============================================================
-# PAGE: ORE
-# ============================================================
+            st.markdown(
+                """
+                <div class="panel">
 
-elif st.session_state.pagina == "Ore":
+                    <div class="panel-title">
+                        Ore per commessa
+                    </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-    st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Cruscotto ore</div>
-                <div class="section-description">
-                    Analisi delle ore e delle principali anomalie
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            by_commessa = (
+                df.groupby(
+                    "Cantiere"
+                )["Ore"]
+                .sum()
+                .sort_values(
+                    ascending=False
+                )
+            )
 
-    ore_df = load_csv(ORE_FILE)
+            st.bar_chart(
+                by_commessa,
+                height=300,
+            )
 
-    if ore_df.empty:
-
-        st.info("Lo storico ore è ancora vuoto.")
-
-    else:
+            st.markdown(
+                "</div>",
+                unsafe_allow_html=True,
+            )
 
         st.markdown(
-            f"""
+            """
             <div class="panel">
-                <div class="section-title">
-                    {number(len(ore_df))} registrazioni
+
+                <div class="panel-title">
+                    Dettaglio turni
                 </div>
-            </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
-
-        # Individua automaticamente una colonna ore
-        possible_hours = [
-            "Ore",
-            "ore",
-            "Ore Lavorate",
-            "Ore Totali",
-            "Durata",
-            "Extra Ore"
-        ]
-
-        hour_col = None
-
-        for col in possible_hours:
-            if col in ore_df.columns:
-                hour_col = col
-                break
-
-        if hour_col:
-
-            ore_df[hour_col] = pd.to_numeric(
-                ore_df[hour_col]
-                .astype(str)
-                .str.replace(",", ".", regex=False),
-                errors="coerce"
-            ).fillna(0)
-
-            h1, h2, h3 = st.columns(3)
-
-            with h1:
-                st.metric(
-                    "Ore totali",
-                    hours(ore_df[hour_col].sum())
-                )
-
-            with h2:
-                st.metric(
-                    "Media / registrazione",
-                    hours(ore_df[hour_col].mean())
-                )
-
-            with h3:
-                st.metric(
-                    "Registrazioni",
-                    number(len(ore_df))
-                )
-
-            if "Data" in ore_df.columns:
-
-                ore_df["Data"] = pd.to_datetime(
-                    ore_df["Data"],
-                    errors="coerce"
-                )
-
-                trend = (
-                    ore_df.dropna(subset=["Data"])
-                    .groupby(ore_df["Data"].dt.date)[hour_col]
-                    .sum()
-                )
-
-                if not trend.empty:
-
-                    st.markdown("### Andamento ore")
-
-                    st.line_chart(
-                        trend,
-                        use_container_width=True
-                    )
-
-        st.markdown("### Storico")
 
         st.dataframe(
-            ore_df,
+            df.sort_values(
+                "Data",
+                ascending=False,
+            ),
             use_container_width=True,
-            hide_index=True
+            hide_index=True,
+        )
+
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True,
         )
 
 
 # ============================================================
-# PAGE: CENTRO DI COSTO
+# CENTRO DI COSTO
 # ============================================================
 
-elif st.session_state.pagina == "Centro di Costo":
+elif pagina == "Centro di Costo":
 
     st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Centro di Costo</div>
-                <div class="section-description">
-                    Registrazione e controllo economico dei servizi
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
+        '<div class="page-title">'
+        'Centro di costo'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
-    tariffe = read_tariffe()
-
-    def tariffa(categoria, voce, default=0):
-        try:
-            row = tariffe[
-                (tariffe["categoria"] == categoria) &
-                (tariffe["voce"] == voce)
-            ]
-
-            if not row.empty:
-                return float(row.iloc[0]["costo"])
-
-        except Exception:
-            pass
-
-        return default
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Registrazione del servizio e calcolo della marginalità.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
     # --------------------------------------------------------
-    # TARIFFE ADMIN
+    # TARIFFARIO
     # --------------------------------------------------------
 
-    if st.session_state.ruolo == "admin":
+    if is_admin():
 
-        with st.expander("⚙️ Configurazione tariffario"):
+        with st.expander(
+            "⚙️ Configurazione tariffario",
+            expanded=False,
+        ):
 
-            edited_tariffe = st.data_editor(
+            tariffe_edit = st.data_editor(
                 tariffe,
                 use_container_width=True,
+                num_rows="dynamic",
                 hide_index=True,
-                num_rows="fixed"
             )
 
             if st.button(
                 "Salva tariffario",
-                type="primary"
+                type="primary",
             ):
 
-                edited_tariffe.to_csv(
+                ok = safe_to_csv(
+                    tariffe_edit,
                     TARIFFE_FILE,
-                    index=False
                 )
 
-                st.success("Tariffario salvato.")
-                st.rerun()
+                if ok:
+
+                    st.success(
+                        "Tariffario salvato."
+                    )
+
+                    st.rerun()
+
+                else:
+
+                    st.error(
+                        "Errore nel salvataggio."
+                    )
 
     # --------------------------------------------------------
-    # STRUTTURA SERVIZI
+    # NUOVO SERVIZIO
     # --------------------------------------------------------
 
-    struttura_servizi = {
-        "Spazzamento Stradale": [
-            "Manuale",
-            "Meccanizzato",
-            "Misto"
-        ],
-        "Raccolta Porta a Porta": [
-            "RACCOLTA PAP PRATO",
-            "RACCOLTA PAP CAMPI",
-            "RACCOLTA PAP VAIANO",
-            "RACCOLTA PAP MANTOVA",
-            "RACCOLTA PAP NOVENTA",
-            "RACCOLTA PAP COSTABISSARA",
-            "RACCOLTA PAP CREMONA"
-        ],
-        "Ritiro Ingombranti": [
-            "A Domicilio",
-            "Abbandoni Stradali"
-        ],
-        "Movimentazione Scarrabili": [
-            "Centro di Raccolta (Ecocentro)",
-            "Aziende Private / Terzi"
-        ],
-        "Raccolta Cartone Selettivo": [
-            "Utenze Commerciali (Negozi)",
-            "Grandi Produttori / Aziende"
-        ]
-    }
+    st.markdown(
+        "### Nuovo servizio"
+    )
 
-    with st.form("nuovo_servizio"):
+    if commesse_disponibili:
 
-        st.markdown("### Nuova registrazione")
+        if is_admin():
 
-        c1, c2, c3 = st.columns(3)
-
-        with c1:
-
-            servizio_data = st.date_input(
-                "Data servizio",
-                value=date.today()
+            cantiere_options = (
+                commesse_disponibili
             )
 
-            if available_commesse:
+        else:
+
+            cantiere_options = (
+                commesse_disponibili
+            )
+
+        with st.form(
+            "nuovo_servizio"
+        ):
+
+            # -----------------------------------------------
+            # SERVIZIO
+            # -----------------------------------------------
+
+            st.markdown(
+                "#### Servizio"
+            )
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+
+                data_servizio = (
+                    st.date_input(
+                        "Data servizio",
+                        value=date.today(),
+                    )
+                )
+
+                categoria = st.selectbox(
+                    "Tipo di servizio",
+                    list(
+                        STRUTTURA_SERVIZI.keys()
+                    ),
+                )
+
+            with c2:
+
+                dettagli = (
+                    STRUTTURA_SERVIZI.get(
+                        categoria,
+                        [],
+                    )
+                )
+
+                dettaglio = st.selectbox(
+                    "Territorio / Commessa",
+                    dettagli
+                    if dettagli
+                    else [""],
+                )
 
                 cantiere = st.selectbox(
-                    "Commessa",
-                    available_commesse
+                    "Commessa gestionale",
+                    cantiere_options,
                 )
 
-            else:
+            # -----------------------------------------------
+            # PRODUZIONE
+            # -----------------------------------------------
 
-                cantiere = st.text_input(
-                    "Commessa"
+            st.markdown(
+                "#### Produzione"
+            )
+
+            p1, p2 = st.columns(2)
+
+            with p1:
+
+                tonnellate = (
+                    st.number_input(
+                        "Tonnellate",
+                        min_value=0.0,
+                        value=0.0,
+                        step=0.1,
+                    )
                 )
 
-        with c2:
+            with p2:
 
-            categoria = st.selectbox(
-                "Categoria",
-                list(struttura_servizi.keys())
+                ricavo_fisso = (
+                    st.number_input(
+                        "Ricavo fisso (€)",
+                        min_value=0.0,
+                        value=0.0,
+                        step=10.0,
+                    )
+                )
+
+            # -----------------------------------------------
+            # PERSONALE
+            # -----------------------------------------------
+
+            st.markdown(
+                "#### Personale"
             )
 
-            dettaglio = st.selectbox(
-                "Dettaglio",
-                struttura_servizi[categoria]
+            r1, r2 = st.columns(2)
+
+            with r1:
+
+                livello = st.selectbox(
+                    "Livello",
+                    [
+                        "L1",
+                        "L2",
+                        "L3",
+                        "L4",
+                    ],
+                )
+
+            with r2:
+
+                ore_personale_input = (
+                    st.number_input(
+                        "Ore personale",
+                        min_value=0.0,
+                        value=0.0,
+                        step=0.5,
+                    )
+                )
+
+            # -----------------------------------------------
+            # MEZZI
+            # -----------------------------------------------
+
+            st.markdown(
+                "#### Mezzi"
             )
 
-        with c3:
+            m1, m2 = st.columns(2)
 
-            tonnellate = st.number_input(
-                "Tonnellate",
-                min_value=0.0,
-                step=0.1
+            with m1:
+
+                tipo_mezzo = st.selectbox(
+                    "Tipo mezzo",
+                    [
+                        "Nessuno",
+                        "Leggero",
+                        "Compattatore",
+                        "Pesante",
+                        "Speciale",
+                    ],
+                )
+
+            with m2:
+
+                ore_mezzo_input = (
+                    st.number_input(
+                        "Ore mezzo",
+                        min_value=0.0,
+                        value=0.0,
+                        step=0.5,
+                    )
+                )
+
+            submit_service = (
+                st.form_submit_button(
+                    "Calcola e registra servizio",
+                    type="primary",
+                    use_container_width=True,
+                )
             )
 
-            ricavo_tipo = st.radio(
-                "Modalità ricavo",
-                [
-                    "Tariffa per tonnellata",
-                    "Ricavo fisso"
-                ],
-                horizontal=True
-            )
+            # -----------------------------------------------
+            # CALCOLO
+            # -----------------------------------------------
 
-            if ricavo_tipo == "Tariffa per tonnellata":
+            if submit_service:
 
-                tariffa_ton = tariffa(
+                costo_personale = (
+                    ore_personale_input
+                    *
+                    tariff(
+                        tariffe,
+                        "Personale",
+                        livello,
+                        28,
+                    )
+                )
+
+                costo_mezzi = 0.0
+
+                if (
+                    tipo_mezzo
+                    != "Nessuno"
+                ):
+
+                    costo_mezzi = (
+                        ore_mezzo_input
+                        *
+                        tariff(
+                            tariffe,
+                            "Mezzi",
+                            tipo_mezzo,
+                            25,
+                        )
+                    )
+
+                base_costi = (
+                    costo_personale
+                    +
+                    costo_mezzi
+                )
+
+                overhead_pct = tariff(
+                    tariffe,
+                    "Generale",
+                    "Overhead",
+                    15,
+                )
+
+                costo_overhead = (
+                    base_costi
+                    *
+                    overhead_pct
+                    /
+                    100
+                )
+
+                costo_totale = (
+                    base_costi
+                    +
+                    costo_overhead
+                )
+
+                tariffa_ton = tariff(
+                    tariffe,
                     "Generale",
                     "Tariffa tonnellata",
-                    130
+                    130,
                 )
 
-                ricavo = tonnellate * tariffa_ton
-
-                st.caption(
-                    f"Tariffa: {euro_decimal(tariffa_ton)} / ton"
+                ricavo_tonnellate = (
+                    tonnellate
+                    *
+                    tariffa_ton
                 )
 
-            else:
+                if ricavo_fisso > 0:
 
-                ricavo = st.number_input(
-                    "Ricavo servizio",
-                    min_value=0.0,
-                    step=100.0
+                    ricavo = (
+                        ricavo_fisso
+                    )
+
+                else:
+
+                    ricavo = (
+                        ricavo_tonnellate
+                    )
+
+                margine = (
+                    ricavo
+                    -
+                    costo_totale
                 )
 
-        st.markdown("### Risorse impiegate")
+                nuovo = pd.DataFrame([
+                    {
+                        "ID": make_id(),
+
+                        "Data":
+                            pd.Timestamp(
+                                data_servizio
+                            ),
+
+                        "Cantiere":
+                            cantiere,
+
+                        "Categoria":
+                            categoria,
+
+                        "Dettaglio":
+                            dettaglio,
+
+                        "Tonnellate":
+                            tonnellate,
+
+                        "Ricavo":
+                            ricavo,
+
+                        "Costo":
+                            costo_totale,
+
+                        "Margine":
+                            margine,
+
+                        "Ore Personale":
+                            ore_personale_input,
+
+                        "Ore Mezzi":
+                            ore_mezzo_input,
+                    }
+                ])
+
+                ok = aggiorna_storico(
+                    nuovo,
+                    SERVIZI_FILE,
+                    "ID",
+                )
+
+                if ok:
+
+                    st.success(
+                        "Servizio registrato correttamente."
+                    )
+
+                    rc1, rc2, rc3 = st.columns(3)
+
+                    with rc1:
+
+                        st.metric(
+                            "Ricavo",
+                            euro(ricavo),
+                        )
+
+                    with rc2:
+
+                        st.metric(
+                            "Costo",
+                            euro(costo_totale),
+                        )
+
+                    with rc3:
+
+                        st.metric(
+                            "Margine",
+                            euro(margine),
+                        )
+
+                    st.rerun()
+
+                else:
+
+                    st.error(
+                        "Impossibile salvare il servizio."
+                    )
+
+    else:
+
+        st.warning(
+            "Non risultano commesse disponibili."
+        )
+
+    # --------------------------------------------------------
+    # STORICO
+    # --------------------------------------------------------
+
+    st.markdown(
+        "### Analisi storica"
+    )
+
+    df_cc = filter_authorized(
+        servizi
+    )
+
+    if not df_cc.empty:
+
+        summary_cc = (
+            df_cc
+            .groupby(
+                [
+                    "Categoria",
+                    "Dettaglio",
+                ],
+                as_index=False,
+            )
+            .agg(
+                Costi=("Costo", "sum"),
+                Ricavi=("Ricavo", "sum"),
+                Margine=("Margine", "sum"),
+                Tonnellate=(
+                    "Tonnellate",
+                    "sum",
+                ),
+            )
+        )
+
+        summary_cc["Costo / Ton"] = np.where(
+            summary_cc["Tonnellate"] != 0,
+            summary_cc["Costi"]
+            /
+            summary_cc["Tonnellate"],
+            0,
+        )
+
+        summary_cc["Margine / Ton"] = np.where(
+            summary_cc["Tonnellate"] != 0,
+            summary_cc["Margine"]
+            /
+            summary_cc["Tonnellate"],
+            0,
+        )
+
+        st.dataframe(
+            summary_cc.sort_values(
+                "Margine",
+                ascending=False,
+            ),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+
+                "Costi":
+                    st.column_config.NumberColumn(
+                        "Costi",
+                        format="€ %.2f",
+                    ),
+
+                "Ricavi":
+                    st.column_config.NumberColumn(
+                        "Ricavi",
+                        format="€ %.2f",
+                    ),
+
+                "Margine":
+                    st.column_config.NumberColumn(
+                        "Margine",
+                        format="€ %.2f",
+                    ),
+
+                "Tonnellate":
+                    st.column_config.NumberColumn(
+                        "Tonnellate",
+                        format="%.1f",
+                    ),
+
+                "Costo / Ton":
+                    st.column_config.NumberColumn(
+                        "Costo / Ton",
+                        format="€ %.2f",
+                    ),
+
+                "Margine / Ton":
+                    st.column_config.NumberColumn(
+                        "Margine / Ton",
+                        format="€ %.2f",
+                    ),
+            },
+        )
+
+    else:
+
+        st.info(
+            "Nessun servizio registrato."
+        )
+
+
+# ============================================================
+# MEZZI
+# ============================================================
+
+elif pagina == "Mezzi":
+
+    st.markdown(
+        '<div class="page-title">'
+        'Mezzi'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Monitoraggio mezzi e relativo impatto economico.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    df_mezzi = filter_authorized(
+        mezzi
+    )
+
+    if df_mezzi.empty:
+
+        st.info(
+            "Nessun mezzo presente."
+        )
+
+    else:
+
+        m1, m2, m3 = st.columns(3)
+
+        with m1:
+
+            st.metric(
+                "Mezzi censiti",
+                len(df_mezzi),
+            )
+
+        with m2:
+
+            categorie = (
+                df_mezzi["Categoria"]
+                .replace(
+                    "",
+                    np.nan,
+                )
+                .dropna()
+                .nunique()
+            )
+
+            st.metric(
+                "Categorie",
+                categorie,
+            )
+
+        with m3:
+
+            costo_medio = (
+                df_mezzi[
+                    "Costo Orario"
+                ].replace(
+                    0,
+                    np.nan,
+                ).mean()
+            )
+
+            if pd.isna(
+                costo_medio
+            ):
+                costo_medio = 0
+
+            st.metric(
+                "Costo orario medio",
+                euro(costo_medio),
+            )
+
+        st.write("")
+
+        st.dataframe(
+            df_mezzi,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        if (
+            "Categoria"
+            in df_mezzi.columns
+        ):
+
+            st.markdown(
+                "### Mezzi per categoria"
+            )
+
+            by_category = (
+                df_mezzi[
+                    "Categoria"
+                ].value_counts()
+            )
+
+            st.bar_chart(
+                by_category,
+                height=280,
+            )
+
+
+# ============================================================
+# REPORT
+# ============================================================
+
+elif pagina == "Report":
+
+    st.markdown(
+        '<div class="page-title">'
+        'Report & Export'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Esporta i dati economici e operativi filtrati.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    df_report = filter_authorized(
+        servizi
+    )
+
+    if (
+        commessa_filter
+        != "Tutte le commesse"
+        and
+        not df_report.empty
+    ):
+
+        df_report = df_report[
+            df_report["Cantiere"]
+            .astype(str)
+            .str.lower()
+            .str.strip()
+            ==
+            commessa_filter
+            .lower()
+            .strip()
+        ]
+
+    if not df_report.empty:
+
+        csv_data = (
+            df_report.to_csv(
+                index=False,
+                encoding="utf-8-sig",
+            )
+        )
+
+        st.download_button(
+            "⬇️ Scarica report economico CSV",
+            data=csv_data,
+            file_name="report_cristoforo.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+        st.markdown(
+            "### Anteprima"
+        )
+
+        st.dataframe(
+            df_report,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown(
+            "### Riepilogo"
+        )
 
         r1, r2, r3, r4 = st.columns(4)
 
         with r1:
 
-            livello_personale = st.selectbox(
-                "Livello personale",
-                ["L1", "L2", "L3", "L4"]
-            )
-
-            ore_personale = st.number_input(
-                "Ore personale",
-                min_value=0.0,
-                step=0.5
+            st.metric(
+                "Ricavi",
+                euro(
+                    df_report[
+                        "Ricavo"
+                    ].sum()
+                ),
             )
 
         with r2:
 
-            tipo_mezzo = st.selectbox(
-                "Tipo mezzo",
-                [
-                    "Leggero",
-                    "Compattatore",
-                    "Pesante",
-                    "Speciale"
-                ]
-            )
-
-            ore_mezzi = st.number_input(
-                "Ore mezzi",
-                min_value=0.0,
-                step=0.5
+            st.metric(
+                "Costi",
+                euro(
+                    df_report[
+                        "Costo"
+                    ].sum()
+                ),
             )
 
         with r3:
 
-            costo_personale = (
-                ore_personale *
-                tariffa(
-                    "Personale",
-                    livello_personale,
-                    22
-                )
-            )
-
-            costo_mezzi = (
-                ore_mezzi *
-                tariffa(
-                    "Mezzi",
-                    tipo_mezzo,
-                    15
-                )
-            )
-
             st.metric(
-                "Costo diretto",
-                euro(costo_personale + costo_mezzi)
+                "Margine",
+                euro(
+                    df_report[
+                        "Margine"
+                    ].sum()
+                ),
             )
 
         with r4:
 
-            overhead_pct = tariffa(
-                "Generale",
-                "Overhead",
-                15
-            )
-
-            overhead = (
-                costo_personale +
-                costo_mezzi
-            ) * overhead_pct / 100
-
-            costo_totale = (
-                costo_personale +
-                costo_mezzi +
-                overhead
-            )
-
-            margine = ricavo - costo_totale
-
             st.metric(
-                "Margine stimato",
-                euro(margine)
+                "Tonnellate",
+                number_it(
+                    df_report[
+                        "Tonnellate"
+                    ].sum()
+                ),
             )
 
-        st.markdown("")
+    else:
 
-        salva = st.form_submit_button(
-            "＋ Registra servizio",
-            type="primary",
-            use_container_width=True
+        st.info(
+            "Nessun dato disponibile."
         )
 
-        if salva:
-
-            if not cantiere:
-                st.error("Inserisci una commessa.")
-                st.stop()
-
-            nuovo = pd.DataFrame([{
-                "ID": make_id(),
-                "Data": servizio_data,
-                "Cantiere": cantiere,
-                "Categoria": categoria,
-                "Dettaglio": dettaglio,
-                "Tonnellate": tonnellate,
-                "Ore Personale": ore_personale,
-                "Ore Mezzi": ore_mezzi,
-                "Ricavi": ricavo,
-                "Costo Personale": costo_personale,
-                "Costo Mezzi": costo_mezzi,
-                "Overhead": overhead,
-                "Costo Totale": costo_totale,
-                "Margine Netto": margine,
-                "Utente": st.session_state.utente
-            }])
-
-            storico = read_services()
-
-            storico = pd.concat(
-                [storico, nuovo],
-                ignore_index=True
-            )
-
-            storico.to_csv(
-                SERVIZI_FILE,
-                index=False
-            )
-
-            st.success(
-                "Servizio registrato correttamente."
-            )
-
-            st.rerun()
-
-    # --------------------------------------------------------
-    # STORICO CENTRO COSTO
-    # --------------------------------------------------------
-
-    st.markdown("### Analisi storica")
-
-    if df.empty:
-
-        st.info("Nessuna registrazione presente.")
-
-    else:
-
-        group_cols = [
-            "Categoria",
-            "Dettaglio"
-        ]
-
-        existing = [
-            x for x in group_cols
-            if x in df.columns
-        ]
-
-        if existing:
-
-            summary = (
-                df.groupby(existing)
-                .agg(
-                    Costi=("Costo Totale", "sum"),
-                    Ricavi=("Ricavi", "sum"),
-                    Margine=("Margine Netto", "sum"),
-                    Tonnellate=("Tonnellate", "sum")
-                )
-                .reset_index()
-            )
-
-            summary["Costo / ton"] = np.where(
-                summary["Tonnellate"] > 0,
-                summary["Costi"] / summary["Tonnellate"],
-                0
-            )
-
-            summary["Margine / ton"] = np.where(
-                summary["Tonnellate"] > 0,
-                summary["Margine"] / summary["Tonnellate"],
-                0
-            )
-
-            st.dataframe(
-                summary,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Costi": st.column_config.NumberColumn(
-                        "Costi",
-                        format="€ %.2f"
-                    ),
-                    "Ricavi": st.column_config.NumberColumn(
-                        "Ricavi",
-                        format="€ %.2f"
-                    ),
-                    "Margine": st.column_config.NumberColumn(
-                        "Margine",
-                        format="€ %.2f"
-                    ),
-                    "Costo / ton": st.column_config.NumberColumn(
-                        "Costo / ton",
-                        format="€ %.2f"
-                    ),
-                    "Margine / ton": st.column_config.NumberColumn(
-                        "Margine / ton",
-                        format="€ %.2f"
-                    )
-                }
-            )
-
 
 # ============================================================
-# PAGE: ANAGRAFICHE
+# ANAGRAFICHE
 # ============================================================
 
-elif st.session_state.pagina == "Anagrafiche":
+elif pagina == "Anagrafiche":
 
-    if st.session_state.ruolo != "admin":
+    if not is_admin():
 
-        st.warning("Sezione riservata alla Direzione.")
+        st.error(
+            "Accesso riservato alla Direzione."
+        )
 
-    else:
+        st.stop()
+
+    st.markdown(
+        '<div class="page-title">'
+        'Anagrafiche'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Gestione operatori e mezzi.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    tab1, tab2 = st.tabs(
+        [
+            "Operatori",
+            "Mezzi",
+        ]
+    )
+
+    with tab1:
 
         st.markdown(
-            """
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Anagrafiche</div>
-                    <div class="section-description">
-                        Operatori e risorse aziendali
-                    </div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+            "### Anagrafica operatori"
         )
 
-        tab1, tab2 = st.tabs([
-            "Operatori",
-            "Mezzi"
-        ])
-
-        with tab1:
-
-            operatori = load_csv(OPERATORI_FILE)
-
-            if operatori.empty:
-
-                operatori = pd.DataFrame(
-                    columns=[
-                        "Matricola",
-                        "Nome",
-                        "Cognome",
-                        "Livello",
-                        "Commessa"
-                    ]
-                )
-
-            edited = st.data_editor(
+        edited_operatori = (
+            st.data_editor(
                 operatori,
                 use_container_width=True,
                 num_rows="dynamic",
-                hide_index=True
+                hide_index=True,
             )
-
-            if st.button(
-                "Salva operatori",
-                type="primary"
-            ):
-
-                edited.to_csv(
-                    OPERATORI_FILE,
-                    index=False
-                )
-
-                st.success("Anagrafica operatori salvata.")
-                st.rerun()
-
-        with tab2:
-
-            mezzi = load_csv(MEZZI_FILE)
-
-            if mezzi.empty:
-
-                mezzi = pd.DataFrame(
-                    columns=[
-                        "Targa",
-                        "Descrizione",
-                        "Tipo",
-                        "Commessa"
-                    ]
-                )
-
-            edited_mezzi = st.data_editor(
-                mezzi,
-                use_container_width=True,
-                num_rows="dynamic",
-                hide_index=True
-            )
-
-            if st.button(
-                "Salva mezzi",
-                type="primary"
-            ):
-
-                edited_mezzi.to_csv(
-                    MEZZI_FILE,
-                    index=False
-                )
-
-                st.success("Anagrafica mezzi salvata.")
-                st.rerun()
-
-
-# ============================================================
-# PAGE: MEZZI
-# ============================================================
-
-elif st.session_state.pagina == "Mezzi":
-
-    st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Mezzi</div>
-                <div class="section-description">
-                    Utilizzo e incidenza economica dei mezzi
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    mezzi = load_csv(MEZZI_FILE)
-
-    if mezzi.empty:
-
-        st.info("Non sono presenti dati nell'anagrafica mezzi.")
-
-    else:
-
-        st.dataframe(
-            mezzi,
-            use_container_width=True,
-            hide_index=True
-        )
-
-    if not df.empty:
-
-        c_mezzi = (
-            df["Costo Mezzi"].sum()
-            if "Costo Mezzi" in df.columns
-            else 0
-        )
-
-        ore_mezzi_tot = (
-            df["Ore Mezzi"].sum()
-            if "Ore Mezzi" in df.columns
-            else 0
-        )
-
-        a, b = st.columns(2)
-
-        with a:
-
-            st.markdown(
-                f"""
-                <div class="kpi-card">
-                    <div class="kpi-label">Costo mezzi</div>
-                    <div class="kpi-value">{euro(c_mezzi)}</div>
-                    <div class="kpi-meta">Periodo selezionato</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-        with b:
-
-            st.markdown(
-                f"""
-                <div class="kpi-card">
-                    <div class="kpi-label">Ore mezzi</div>
-                    <div class="kpi-value">{hours(ore_mezzi_tot)}</div>
-                    <div class="kpi-meta">Utilizzo registrato</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-
-# ============================================================
-# PAGE: REPORT
-# ============================================================
-
-elif st.session_state.pagina == "Report":
-
-    st.markdown(
-        """
-        <div class="section-header">
-            <div>
-                <div class="section-title">Report & Export</div>
-                <div class="section-description">
-                    Esporta i dati economici della vista corrente
-                </div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    if df.empty:
-
-        st.info("Non ci sono dati da esportare.")
-
-    else:
-
-        csv_data = df.to_csv(
-            index=False
-        ).encode("utf-8-sig")
-
-        st.download_button(
-            "⬇ Scarica dati economici CSV",
-            data=csv_data,
-            file_name=f"report_cristoforo_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-
-        st.markdown("### Anteprima")
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-# ============================================================
-# PAGE: GESTIONE ACCESSI
-# ============================================================
-
-elif st.session_state.pagina == "Gestione Accessi":
-
-    if st.session_state.ruolo != "admin":
-
-        st.warning("Sezione riservata alla Direzione.")
-
-    else:
-
-        st.markdown(
-            """
-            <div class="section-header">
-                <div>
-                    <div class="section-title">Gestione Accessi</div>
-                    <div class="section-description">
-                        Utenti, ruoli e commesse autorizzate
-                    </div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        users = read_users()
-
-        edited_users = st.data_editor(
-            users,
-            use_container_width=True,
-            num_rows="dynamic",
-            hide_index=True,
-            column_config={
-                "password": st.column_config.TextColumn(
-                    "Password",
-                    help="Password dell'utente"
-                ),
-                "ruolo": st.column_config.SelectboxColumn(
-                    "Ruolo",
-                    options=[
-                        "admin",
-                        "capocantiere"
-                    ]
-                )
-            }
         )
 
         if st.button(
-            "Salva gestione accessi",
-            type="primary"
+            "Salva operatori",
+            type="primary",
         ):
 
-            edited_users.to_csv(
-                UTENTI_FILE,
-                index=False
+            ok = safe_to_csv(
+                edited_operatori,
+                OPERATORI_FILE,
             )
 
+            if ok:
+
+                st.success(
+                    "Anagrafica operatori aggiornata."
+                )
+
+                st.rerun()
+
+            else:
+
+                st.error(
+                    "Errore nel salvataggio."
+                )
+
+        st.download_button(
+            "Esporta operatori CSV",
+            edited_operatori.to_csv(
+                index=False,
+                encoding="utf-8-sig",
+            ),
+            "anagrafica_operatori.csv",
+            "text/csv",
+        )
+
+    with tab2:
+
+        st.markdown(
+            "### Anagrafica mezzi"
+        )
+
+        edited_mezzi = (
+            st.data_editor(
+                mezzi,
+                use_container_width=True,
+                num_rows="dynamic",
+                hide_index=True,
+            )
+        )
+
+        if st.button(
+            "Salva mezzi",
+            type="primary",
+        ):
+
+            ok = safe_to_csv(
+                edited_mezzi,
+                MEZZI_FILE,
+            )
+
+            if ok:
+
+                st.success(
+                    "Anagrafica mezzi aggiornata."
+                )
+
+                st.rerun()
+
+            else:
+
+                st.error(
+                    "Errore nel salvataggio."
+                )
+
+        st.download_button(
+            "Esporta mezzi CSV",
+            edited_mezzi.to_csv(
+                index=False,
+                encoding="utf-8-sig",
+            ),
+            "anagrafica_mezzi.csv",
+            "text/csv",
+        )
+
+
+# ============================================================
+# GESTIONE ACCESSI
+# ============================================================
+
+elif pagina == "Gestione Accessi":
+
+    if not is_admin():
+
+        st.error(
+            "Accesso riservato alla Direzione."
+        )
+
+        st.stop()
+
+    st.markdown(
+        '<div class="page-title">'
+        'Gestione accessi'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="page-subtitle">'
+        'Utenti, ruoli e commesse autorizzate.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    users_current = read_users()
+
+    st.info(
+        "Nel campo 'cantieri' puoi indicare "
+        "più commesse separate da virgola. "
+        "Per l'accesso completo usa TUTTI."
+    )
+
+    edited_users = st.data_editor(
+        users_current,
+        use_container_width=True,
+        num_rows="dynamic",
+        hide_index=True,
+    )
+
+    if st.button(
+        "Salva utenti",
+        type="primary",
+        use_container_width=True,
+    ):
+
+        edited_users = ensure_columns(
+            edited_users,
+            [
+                "username",
+                "password",
+                "nome",
+                "ruolo",
+                "cantieri",
+            ],
+        )
+
+        edited_users = edited_users[
+            [
+                "username",
+                "password",
+                "nome",
+                "ruolo",
+                "cantieri",
+            ]
+        ]
+
+        ok = safe_to_csv(
+            edited_users,
+            UTENTI_FILE,
+        )
+
+        if ok:
+
             st.success(
-                "Gestione accessi aggiornata."
+                "Utenti salvati correttamente."
             )
 
             st.rerun()
+
+        else:
+
+            st.error(
+                "Errore nel salvataggio utenti."
+            )
 
 
 # ============================================================
@@ -2130,16 +4230,10 @@ elif st.session_state.pagina == "Gestione Accessi":
 
 st.markdown(
     """
-    <div style="
-        margin-top:45px;
-        padding-top:15px;
-        border-top:1px solid #e5e7eb;
-        color:#9ca3af;
-        font-size:11px;
-        text-align:center;
-    ">
-        CRISTOFORO · CONTROL ROOM · Sistema operativo ed economico
+    <div class="footer">
+        Cristoforo · Control Room ·
+        Gestione operativa ed economica
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
