@@ -1,656 +1,285 @@
-import os
 import io
+import os
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-
 # ============================================================
-# CONFIGURAZIONE PAGINA
+# CRISTOFORO | CONTROL ROOM V3
+# Architettura:
+#   Servizio -> Sottoservizio -> Risorse certificate
+#   Personale: Contratto + Livello + ore + costo orario aziendale
+#   Mezzi: Tipo mezzo + ore + costo orario
+#   Ricavi -> Costi -> Margine
 # ============================================================
 
 st.set_page_config(
-    page_title="Control Room | Cristoforo",
+    page_title="Cristoforo | Control Room V3",
     page_icon="♻️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-
-# ============================================================
-# FILE
-# ============================================================
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-UTENTI_FILE = os.path.join(BASE_DIR, "utenti_cristoforo.csv")
-ORE_FILE = os.path.join(BASE_DIR, "storico_ore_cristoforo.csv")
-OPERATORI_FILE = os.path.join(BASE_DIR, "anagrafica_operatori.csv")
-MEZZI_FILE = os.path.join(BASE_DIR, "anagrafica_mezzi.csv")
-SERVIZI_FILE = os.path.join(BASE_DIR, "storico_servizi_v9.csv")
-TARIFFE_FILE = os.path.join(BASE_DIR, "tariffe_cristoforo.csv")
+LEGACY_SERVICES_FILE = os.path.join(BASE_DIR, "storico_servizi_v9.csv")
 
+FILES = {
+    "users": os.path.join(BASE_DIR, "utenti_cristoforo.csv"),
+    "operators": os.path.join(BASE_DIR, "anagrafica_operatori.csv"),
+    "vehicles": os.path.join(BASE_DIR, "anagrafica_mezzi.csv"),
+    "services": os.path.join(BASE_DIR, "servizi_cristoforo.csv"),
+    "personnel": os.path.join(BASE_DIR, "dettaglio_personale_cristoforo.csv"),
+    "vehicle_detail": os.path.join(BASE_DIR, "dettaglio_mezzi_cristoforo.csv"),
+    "certifications": os.path.join(BASE_DIR, "certificazioni_cristoforo.csv"),
+    "tariffs": os.path.join(BASE_DIR, "tariffe_cristoforo.csv"),
+}
 
-# ============================================================
-# COMMESSE E SERVIZI
-# ============================================================
+# ------------------------------------------------------------
+# SERVIZI / SOTTOSERVIZI
+# La struttura segue esattamente l'elenco fornito.
+# ------------------------------------------------------------
+SERVICE_TREE = {
+    "Spazzamenti": ["Scandicci"],
+    "Aree Verdi": ["Piana", "Prato"],
+    "Porta a Porta": [
+        "Prato", "Vaiano", "Campi", "Noventa", "Costabissara",
+        "Cremona", "Mantova", "Lucca"
+    ],
+    "Trasporti": ["Alia"],
+    "Raccolta Cartone Selettivo": [
+        "Firenze", "Piana", "Prato", "Campi"
+    ],
+    "Ingombranti": [
+        "Prato", "Campi Bisenzio", "Valdisieve", "Mugello"
+    ],
+}
 
-# La seconda colonna della struttura fornita viene trattata
-# come COMMESSA.
-COMMESSE_STANDARD = [
-    "Scandicci",
-    "Piana",
-    "Prato",
-    "Vaiano",
-    "Campi",
-    "Noventa",
-    "Costabissara",
-    "Cremona",
-    "Mantova",
-    "Lucca",
-    "Alia",
-    "Firenze",
-    "Campi Bisenzio",
-    "Valdisieve",
-    "Mugello",
+SUBSERVICES = sorted({x for values in SERVICE_TREE.values() for x in values})
+
+# ------------------------------------------------------------
+# CONTRATTI
+# Nota: il codice rende configurabile il costo orario aziendale.
+# Non viene confuso con il minimo tabellare del CCNL.
+# ------------------------------------------------------------
+UTILITALIA_LEVELS = [
+    "Q", "A1", "A2S", "A2", "B1S", "B1", "B2S", "B2",
+    "C1S", "C1", "C2S", "C2", "D1S", "D1", "D2S", "D2"
 ]
 
-# La prima colonna viene trattata come SERVIZIO.
-SERVIZI_PER_COMMESSA = {
-    "Scandicci": [
-        "Spazzamenti",
-    ],
-    "Piana": [
-        "Aree Verdi",
-        "Raccolta Cartone Selettivo",
-    ],
-    "Prato": [
-        "Aree Verdi",
-        "Porta a Porta",
-        "Raccolta Cartone Selettivo",
-        "Ingombranti",
-    ],
-    "Vaiano": [
-        "Porta a Porta",
-    ],
-    "Campi": [
-        "Porta a Porta",
-        "Raccolta Cartone Selettivo",
-    ],
-    "Noventa": [
-        "Porta a Porta",
-    ],
-    "Costabissara": [
-        "Porta a Porta",
-    ],
-    "Cremona": [
-        "Porta a Porta",
-    ],
-    "Mantova": [
-        "Porta a Porta",
-    ],
-    "Lucca": [
-        "Porta a Porta",
-    ],
-    "Alia": [
-        "Trasporti",
-    ],
-    "Firenze": [
-        "Raccolta Cartone Selettivo",
-    ],
-    "Campi Bisenzio": [
-        "Ingombranti",
-    ],
-    "Valdisieve": [
-        "Ingombranti",
-    ],
-    "Mugello": [
-        "Ingombranti",
-    ],
+COOPERATIVE_SOCIALI_LEVELS = [
+    "A1", "A2", "B1", "C1", "C2", "C3",
+    "D1", "D2", "D3", "E1", "E2", "F1", "F2"
+]
+
+CONTRACTS = {
+    "Servizi Ambientali - Utilitalia": UTILITALIA_LEVELS,
+    "Cooperative Sociali": COOPERATIVE_SOCIALI_LEVELS,
 }
 
+DEFAULT_VEHICLE_TYPES = [
+    "Leggero",
+    "Furgone",
+    "Compattatore",
+    "Spazzatrice",
+    "Scarrabile",
+    "Pesante",
+    "Speciale",
+]
 
-# ============================================================
-# ALIAS LEGACY
-# ============================================================
-
-# Permette di continuare a leggere i vecchi CSV.
-COMMESSA_LEGACY_MAP = {
-    "RACCOLTA PAP PRATO": "Prato",
-    "RACCOLTA PAP MANTOVA": "Mantova",
-    "RACCOLTA PAP CAMPI": "Campi",
-    "RACCOLTA PAP VAIANO": "Vaiano",
-    "RACCOLTA PAP NOVENTA": "Noventa",
-    "RACCOLTA PAP COSTABISSARA": "Costabissara",
-    "RACCOLTA PAP CREMONA": "Cremona",
-    "RACCOLTA PAP LUCCA": "Lucca",
+DEFAULT_VEHICLE_COSTS = {
+    "Leggero": 15.0,
+    "Furgone": 18.0,
+    "Compattatore": 25.0,
+    "Spazzatrice": 35.0,
+    "Scarrabile": 40.0,
+    "Pesante": 45.0,
+    "Speciale": 65.0,
 }
 
-SERVIZIO_LEGACY_MAP = {
-    "Raccolta Porta a Porta": "Porta a Porta",
-    "Raccolta PAP": "Porta a Porta",
-    "Spazzamento Stradale": "Spazzamenti",
-    "Spazzamento": "Spazzamenti",
-    "Aree verdi": "Aree Verdi",
-    "Ritiro Ingombranti": "Ingombranti",
-    "Movimentazione Scarrabili": "Trasporti",
-    "Raccolta Cartone": "Raccolta Cartone Selettivo",
-}
-
-
-# ============================================================
-# UTENTI DEFAULT
-# ============================================================
-
-DEFAULT_USERS = pd.DataFrame(
-    [
-        {
-            "username": "direzione",
-            "password": "admin",
-            "nome": "Direzione",
-            "ruolo": "admin",
-            "cantieri": "TUTTI",
-        },
-        {
-            "username": "resp_prato",
-            "password": "123",
-            "nome": "Responsabile Prato",
-            "ruolo": "capocantiere",
-            "cantieri": "Prato",
-        },
-        {
-            "username": "resp_mantova",
-            "password": "456",
-            "nome": "Responsabile Mantova",
-            "ruolo": "capocantiere",
-            "cantieri": "Mantova",
-        },
-    ]
-)
-
-
-DEFAULT_TARIFFE = pd.DataFrame(
-    [
-        {"Categoria": "Personale", "Voce": "L1", "Costo": 22.0},
-        {"Categoria": "Personale", "Voce": "L2", "Costo": 25.0},
-        {"Categoria": "Personale", "Voce": "L3", "Costo": 28.0},
-        {"Categoria": "Personale", "Voce": "L4", "Costo": 32.0},
-        {"Categoria": "Mezzi", "Voce": "Leggero", "Costo": 15.0},
-        {"Categoria": "Mezzi", "Voce": "Compattatore", "Costo": 25.0},
-        {"Categoria": "Mezzi", "Voce": "Pesante", "Costo": 45.0},
-        {"Categoria": "Mezzi", "Voce": "Speciale", "Costo": 65.0},
-        {"Categoria": "Generale", "Voce": "Overhead", "Costo": 15.0},
-        {"Categoria": "Generale", "Voce": "Tariffa tonnellata", "Costo": 130.0},
-    ]
-)
-
+DEFAULT_USERS = pd.DataFrame([
+    {
+        "username": "direzione",
+        "password": "admin",
+        "nome": "Direzione",
+        "ruolo": "admin",
+        "autorizzazioni": "TUTTI",
+    },
+    {
+        "username": "resp_prato",
+        "password": "123",
+        "nome": "Responsabile Prato",
+        "ruolo": "capocantiere",
+        "autorizzazioni": "Prato",
+    },
+    {
+        "username": "resp_mantova",
+        "password": "456",
+        "nome": "Responsabile Mantova",
+        "ruolo": "capocantiere",
+        "autorizzazioni": "Mantova",
+    },
+])
 
 # ============================================================
 # CSS
 # ============================================================
 
-st.markdown(
-    """
+st.markdown("""
 <style>
-
 :root {
-    --green: #008b3a;
-    --green-dark: #006f2f;
-    --green-light: #e9f7ef;
-    --bg: #f4f6f8;
-    --card: #ffffff;
-    --text: #17202a;
-    --muted: #6b7280;
-    --border: #e5e7eb;
+    --green:#008b3a;
+    --green-dark:#00682d;
+    --green-soft:#eaf7ef;
+    --ink:#17211c;
+    --muted:#6c7770;
+    --line:#e4e8e5;
+    --bg:#f3f6f4;
+    --white:#ffffff;
 }
 
-html, body, [class*="css"] {
-    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI",
-                 Roboto, Helvetica, Arial, sans-serif;
-}
+.stApp { background:var(--bg); }
+.block-container { max-width:1500px; padding-top:1rem; padding-bottom:3rem; }
+section[data-testid="stSidebar"] { background:#0f1713; border-right:1px solid #1d2821; }
+section[data-testid="stSidebar"] * { color:#eef5f0; }
 
-.stApp {
-    background: var(--bg);
-}
-
-.block-container {
-    padding-top: 1.3rem;
-    padding-bottom: 3rem;
-    max-width: 1500px;
-}
-
-section[data-testid="stSidebar"] {
-    background: #101714;
-    border-right: 1px solid #1f2924;
-}
-
-section[data-testid="stSidebar"] * {
-    color: #e9f2ed;
-}
-
-.sidebar-brand {
-    padding: 12px 8px 25px 8px;
-}
-
-.sidebar-logo {
-    font-size: 28px;
-    font-weight: 800;
-    letter-spacing: -1px;
-}
-
-.sidebar-subtitle {
-    color: #91a39a !important;
-    font-size: 12px;
-    margin-top: 2px;
-}
+.brand { padding:10px 4px 20px 4px; }
+.brand-title { font-size:27px; font-weight:900; letter-spacing:-1px; }
+.brand-sub { color:#8c9a92 !important; font-size:12px; margin-top:3px; }
 
 .topbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 15px 20px;
-    margin-bottom: 18px;
-    box-shadow: 0 3px 15px rgba(15, 23, 42, 0.04);
+    background:#fff; border:1px solid var(--line); border-radius:20px;
+    padding:16px 20px; display:flex; justify-content:space-between;
+    align-items:center; box-shadow:0 5px 18px rgba(20,40,30,.04);
+    margin-bottom:18px;
 }
-
-.page-title {
-    font-size: 27px;
-    font-weight: 800;
-    color: var(--text);
-    letter-spacing: -0.7px;
-}
-
-.page-subtitle {
-    color: var(--muted);
-    font-size: 13px;
-    margin-top: 3px;
-}
-
-.user-pill {
-    background: #eef7f1;
-    color: var(--green-dark);
-    padding: 8px 13px;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 700;
-}
+.title { font-size:28px; font-weight:900; letter-spacing:-.8px; color:var(--ink); }
+.subtitle { color:var(--muted); font-size:13px; margin-top:4px; }
+.user-pill { background:var(--green-soft); color:var(--green-dark); font-weight:800; border-radius:999px; padding:8px 13px; font-size:12px; }
 
 .hero {
-    background: linear-gradient(135deg, #ffffff 0%, #eef8f2 100%);
-    border: 1px solid #dcebe1;
-    border-radius: 22px;
-    padding: 23px 26px;
-    margin-bottom: 20px;
+    background:linear-gradient(135deg,#ffffff 0%,#edf8f1 100%);
+    border:1px solid #dce9e0; border-radius:22px; padding:20px 22px;
+    box-shadow:0 8px 26px rgba(0,60,30,.035); margin-bottom:18px;
 }
+.hero-kicker { color:var(--green-dark); text-transform:uppercase; letter-spacing:1px; font-size:11px; font-weight:900; }
+.hero-title { font-size:29px; font-weight:900; margin-top:4px; color:#122018; }
+.hero-copy { color:#6a756e; margin-top:4px; }
 
-.hero-label {
-    color: var(--green-dark);
-    font-size: 12px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+.step-card {
+    background:#fff; border:1px solid var(--line); border-radius:18px;
+    padding:15px 17px; min-height:110px; box-shadow:0 4px 17px rgba(20,40,30,.035);
 }
-
-.hero-title {
-    color: #132019;
-    font-size: 30px;
-    font-weight: 850;
-    margin-top: 5px;
-}
-
-.hero-detail {
-    color: #68756e;
-    margin-top: 5px;
-}
+.step-number { font-size:11px; font-weight:900; color:var(--green); text-transform:uppercase; }
+.step-title { font-size:17px; font-weight:850; margin-top:6px; }
+.step-copy { color:var(--muted); font-size:12px; margin-top:3px; }
 
 .kpi {
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 18px;
-    min-height: 125px;
-    box-shadow: 0 3px 14px rgba(15, 23, 42, 0.035);
+    background:#fff; border:1px solid var(--line); border-radius:17px;
+    padding:17px; min-height:120px; box-shadow:0 4px 18px rgba(20,40,30,.035);
 }
+.kpi-label { color:#7b857e; font-size:11px; font-weight:850; text-transform:uppercase; letter-spacing:.5px; }
+.kpi-value { font-size:28px; line-height:1.15; font-weight:900; margin-top:8px; color:#111a15; }
+.kpi-note { color:#8a948d; font-size:11px; margin-top:5px; }
 
-.kpi-label {
-    color: #7b8490;
-    font-size: 12px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .5px;
-}
+.section-title { font-size:18px; font-weight:900; color:var(--ink); margin:22px 0 10px; }
+.info-card { background:#fff; border:1px solid var(--line); border-radius:17px; padding:16px; box-shadow:0 4px 18px rgba(20,40,30,.035); }
+.info-title { font-size:12px; font-weight:850; color:#68736c; text-transform:uppercase; letter-spacing:.45px; }
+.info-value { font-size:24px; font-weight:900; margin-top:5px; }
 
-.kpi-value {
-    color: #111827;
-    font-size: 29px;
-    font-weight: 850;
-    margin-top: 8px;
-}
+.badge-ok { display:inline-block; background:#e5f6eb; color:#08763a; padding:5px 9px; border-radius:999px; font-size:10px; font-weight:900; }
+.badge-warn { display:inline-block; background:#fff5dd; color:#976600; padding:5px 9px; border-radius:999px; font-size:10px; font-weight:900; }
+.badge-danger { display:inline-block; background:#fdeaea; color:#b42318; padding:5px 9px; border-radius:999px; font-size:10px; font-weight:900; }
 
-.kpi-note {
-    color: #8a929d;
-    font-size: 12px;
-    margin-top: 5px;
-}
+.login { max-width:430px; margin:8vh auto 0; background:#fff; border:1px solid var(--line); border-radius:24px; padding:35px; box-shadow:0 20px 60px rgba(20,40,30,.08); }
+.login-logo { text-align:center; color:var(--green); font-size:36px; font-weight:950; }
+.login-copy { text-align:center; color:var(--muted); margin-bottom:24px; }
 
-.section-title {
-    font-size: 18px;
-    font-weight: 800;
-    color: #18221d;
-    margin: 24px 0 10px 0;
-}
-
-.status-ok {
-    display: inline-block;
-    background: #e7f7ed;
-    color: #087a36;
-    padding: 5px 9px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 800;
-}
-
-.status-warning {
-    display: inline-block;
-    background: #fff6df;
-    color: #9a6a00;
-    padding: 5px 9px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 800;
-}
-
-.status-critical {
-    display: inline-block;
-    background: #fdeaea;
-    color: #b42318;
-    padding: 5px 9px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 800;
-}
-
-.info-card {
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    padding: 18px;
-    margin-bottom: 12px;
-}
-
-.info-title {
-    font-size: 14px;
-    font-weight: 800;
-    color: #202b25;
-}
-
-.info-value {
-    font-size: 24px;
-    font-weight: 850;
-    margin-top: 6px;
-}
-
-.login-box {
-    max-width: 430px;
-    margin: 8vh auto;
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    padding: 35px;
-    box-shadow: 0 15px 50px rgba(15, 23, 42, .08);
-}
-
-.login-logo {
-    text-align: center;
-    font-size: 38px;
-    font-weight: 900;
-    color: var(--green);
-}
-
-.login-sub {
-    text-align: center;
-    color: var(--muted);
-    margin-bottom: 25px;
-}
-
-div.stButton > button {
-    border-radius: 11px;
-    font-weight: 700;
-}
-
-div[data-testid="stMetric"] {
-    background: white;
-    border: 1px solid var(--border);
-    padding: 12px;
-    border-radius: 14px;
-}
-
-footer {
-    visibility: hidden;
-}
-
+div.stButton > button { border-radius:11px; font-weight:800; }
+footer { visibility:hidden; }
 </style>
-""",
-    unsafe_allow_html=True,
-)
-
+""", unsafe_allow_html=True)
 
 # ============================================================
-# FUNZIONI GENERALI CSV
+# CSV HELPERS
 # ============================================================
 
-def clean_col_name(value):
-    """Normalizza il nome di una colonna."""
-
-    if value is None:
-        return ""
-
-    value = str(value)
-    value = value.replace("\ufeff", "")
-    value = value.strip().lower()
-
-    replacements = {
-        "à": "a",
-        "è": "e",
-        "é": "e",
-        "ì": "i",
-        "ò": "o",
-        "ù": "u",
-        "€": "euro",
-        "/": "_",
-        "-": "_",
-        " ": "_",
-    }
-
-    for old, new in replacements.items():
-        value = value.replace(old, new)
-
-    value = re.sub(r"_+", "_", value)
-
-    return value.strip("_")
+def clean_col(value):
+    value = str(value).replace("\ufeff", "").strip().lower()
+    trans = str.maketrans({"à":"a","è":"e","é":"e","ì":"i","ò":"o","ù":"u"})
+    value = value.translate(trans)
+    value = value.replace("€", "euro").replace("/", "_").replace("-", "_").replace(" ", "_")
+    return re.sub(r"_+", "_", value).strip("_")
 
 
 def normalize_columns(df):
-    """Normalizza tutte le colonne."""
-
     if df is None:
         return pd.DataFrame()
-
-    df = df.copy()
-
-    new_columns = []
-    for col in df.columns:
-        new_columns.append(clean_col_name(col))
-
-    df.columns = new_columns
-
-    return df
+    out = df.copy()
+    out.columns = [clean_col(c) for c in out.columns]
+    return out
 
 
-def flexible_read_csv(path):
-    """
-    Legge CSV con:
-    - ;
-    - ,
-    - tab
-    - utf-8
-    - utf-8-sig
-    - latin1
-    """
-
+def read_csv_flexible(path):
     if not os.path.exists(path):
         return pd.DataFrame()
-
-    encodings = ["utf-8-sig", "utf-8", "latin1"]
-
-    for encoding in encodings:
+    for enc in ["utf-8-sig", "utf-8", "latin1"]:
         try:
-            df = pd.read_csv(
-                path,
-                sep=None,
-                engine="python",
-                encoding=encoding,
-                dtype=str,
-                keep_default_na=False,
-            )
-
+            df = pd.read_csv(path, sep=None, engine="python", dtype=str, keep_default_na=False, encoding=enc)
             if len(df.columns) > 1:
                 return normalize_columns(df)
-
         except Exception:
             pass
-
-    # Ultimo tentativo con ;
-    try:
-        df = pd.read_csv(
-            path,
-            sep=";",
-            encoding="latin1",
-            dtype=str,
-            keep_default_na=False,
-        )
-        return normalize_columns(df)
-    except Exception:
-        return pd.DataFrame()
+    return pd.DataFrame()
 
 
-def safe_to_csv(df, path):
-    try:
-        df.to_csv(
-            path,
-            index=False,
-            encoding="utf-8-sig",
-        )
-        return True
-    except Exception as exc:
-        st.error(f"Impossibile salvare {os.path.basename(path)}: {exc}")
-        return False
+def save_csv(df, path):
+    df.to_csv(path, index=False, encoding="utf-8-sig")
 
 
-def first_existing_column(df, candidates):
-    if df is None or df.empty:
-        return None
-
-    normalized = {
-        clean_col_name(c): c
-        for c in df.columns
-    }
-
-    for candidate in candidates:
-        key = clean_col_name(candidate)
-
-        if key in normalized:
-            return normalized[key]
-
-    return None
-
-
-def rename_using_aliases(df, aliases):
-    """
-    aliases:
-        {"colonna_standard": ["alias1", "alias2"]}
-    """
-
+def aliases_rename(df, mapping):
     df = normalize_columns(df)
-
-    rename_map = {}
-
-    for standard, possible_names in aliases.items():
-
-        candidates = [standard] + possible_names
-
-        found = first_existing_column(df, candidates)
-
-        if found and found != standard:
-            rename_map[found] = standard
-
-    if rename_map:
-        df = df.rename(columns=rename_map)
-
-    return df
+    existing = {clean_col(c): c for c in df.columns}
+    ren = {}
+    for target, aliases in mapping.items():
+        for name in [target] + list(aliases):
+            key = clean_col(name)
+            if key in existing:
+                ren[existing[key]] = target
+                break
+    return df.rename(columns=ren)
 
 
-def ensure_columns(df, columns):
-    df = df.copy()
-
-    for col in columns:
-        if col not in df.columns:
-            df[col] = ""
-
-    return df
+def ensure(df, cols):
+    out = df.copy()
+    for col in cols:
+        if col not in out.columns:
+            out[col] = ""
+    return out
 
 
-# ============================================================
-# CONVERSIONI
-# ============================================================
-
-def parse_number(value):
-    if value is None:
+def parse_num(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
         return 0.0
-
     if isinstance(value, (int, float, np.integer, np.floating)):
-        if pd.isna(value):
-            return 0.0
         return float(value)
-
-    text = str(value).strip()
-
-    if text == "":
+    s = str(value).strip().replace("€", "").replace("EUR", "").replace("eur", "").replace(" ", "")
+    if not s:
         return 0.0
-
-    text = (
-        text.replace("€", "")
-        .replace("EUR", "")
-        .replace("eur", "")
-        .replace(" ", "")
-    )
-
-    # 1.234,56
-    if "." in text and "," in text:
-        if text.rfind(",") > text.rfind("."):
-            text = text.replace(".", "").replace(",", ".")
+    if "," in s and "." in s:
+        if s.rfind(",") > s.rfind("."):
+            s = s.replace(".", "").replace(",", ".")
         else:
-            text = text.replace(",", "")
-
-    # 1234,56
-    elif "," in text:
-        text = text.replace(",", ".")
-
-    # 1.234 -> può essere mille duecentotrentaquattro
-    elif text.count(".") == 1:
-        parts = text.split(".")
-
-        if len(parts[-1]) == 3:
-            text = text.replace(".", "")
-
+            s = s.replace(",", "")
+    elif "," in s:
+        s = s.replace(",", ".")
+    elif s.count(".") == 1 and len(s.split(".")[-1]) == 3:
+        s = s.replace(".", "")
     try:
-        return float(text)
+        return float(s)
     except Exception:
         return 0.0
 
@@ -658,2158 +287,1010 @@ def parse_number(value):
 def parse_hours(value):
     if value is None:
         return 0.0
-
     if isinstance(value, (int, float, np.integer, np.floating)):
-        number = float(value)
-
-        # Excel time fraction
-        if 0 < number < 1:
-            return number * 24
-
-        return number
-
-    text = str(value).strip()
-
-    if not text:
+        v = float(value)
+        return v * 24 if 0 < v < 1 else v
+    s = str(value).strip()
+    if not s:
         return 0.0
-
-    # HH:MM
-    if ":" in text:
+    if ":" in s:
         try:
-            parts = text.split(":")
-
-            hours = float(parts[0])
-            minutes = float(parts[1])
-
-            return hours + minutes / 60
+            p = s.split(":")
+            return float(p[0]) + float(p[1]) / 60
         except Exception:
             pass
-
-    return parse_number(text)
+    return parse_num(s)
 
 
 def parse_date(value):
     if value is None or str(value).strip() == "":
         return pd.NaT
-
-    try:
-        return pd.to_datetime(
-            value,
-            dayfirst=True,
-            errors="coerce",
-        )
-    except Exception:
-        return pd.NaT
+    return pd.to_datetime(value, dayfirst=True, errors="coerce")
 
 
-def euro(value):
-    return f"€ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+def euro(v):
+    txt = f"€ {float(v):,.2f}"
+    return txt.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def number_it(value, decimals=1):
-    text = f"{float(value):,.{decimals}f}"
-    return text.replace(",", "X").replace(".", ",").replace("X", ".")
-
-
-def hours_text(value):
-    return f"{float(value):.1f} h".replace(".", ",")
-
-
-def pct(value):
-    return f"{float(value):.1f}%".replace(".", ",")
-
+def num(v, dec=1):
+    txt = f"{float(v):,.{dec}f}"
+    return txt.replace(",", "X").replace(".", ",").replace("X", ".")
 
 # ============================================================
-# CANONICALIZZAZIONE COMMESSE
+# FILE INITIALIZATION
 # ============================================================
 
-def canonical_commessa(value):
-    if value is None:
-        return ""
+def init_files():
+    if not os.path.exists(FILES["users"]):
+        save_csv(DEFAULT_USERS, FILES["users"])
+    if not os.path.exists(FILES["operators"]):
+        save_csv(pd.DataFrame(columns=["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Commessa"]), FILES["operators"])
+    if not os.path.exists(FILES["vehicles"]):
+        save_csv(pd.DataFrame(columns=["Targa", "Mezzo", "Tipo", "Commessa"]), FILES["vehicles"])
+    if not os.path.exists(FILES["services"]):
+        save_csv(pd.DataFrame(columns=[
+            "ID", "Data", "Servizio", "Sottoservizio", "Tonnellate", "Ricavi",
+            "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine",
+            "Note", "Creato Da"
+        ]), FILES["services"])
+    if not os.path.exists(FILES["personnel"]):
+        save_csv(pd.DataFrame(columns=[
+            "ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Matricola",
+            "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale"
+        ]), FILES["personnel"])
+    if not os.path.exists(FILES["vehicle_detail"]):
+        save_csv(pd.DataFrame(columns=[
+            "ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Targa",
+            "Mezzo", "Tipo", "Ore", "Costo Orario", "Costo Totale"
+        ]), FILES["vehicle_detail"])
+    if not os.path.exists(FILES["certifications"]):
+        save_csv(pd.DataFrame(columns=[
+            "ID Import", "Data Import", "File", "Righe", "Esito", "Operatore"
+        ]), FILES["certifications"])
+    if not os.path.exists(FILES["tariffs"]):
+        # Livelli contrattuali: costo orario volutamente configurabile.
+        rows = []
+        for contract, levels in CONTRACTS.items():
+            for level in levels:
+                rows.append({
+                    "Tipo": "Personale",
+                    "Contratto": contract,
+                    "Livello_o_Tipo": level,
+                    "Costo_Orario": 0.0,
+                    "Attivo": "SI",
+                })
+        for vehicle, cost in DEFAULT_VEHICLE_COSTS.items():
+            rows.append({
+                "Tipo": "Mezzo",
+                "Contratto": "",
+                "Livello_o_Tipo": vehicle,
+                "Costo_Orario": cost,
+                "Attivo": "SI",
+            })
+        rows.append({
+            "Tipo": "Generale",
+            "Contratto": "",
+            "Livello_o_Tipo": "Overhead",
+            "Costo_Orario": 15.0,
+            "Attivo": "SI",
+        })
+        save_csv(pd.DataFrame(rows), FILES["tariffs"])
 
-    text = str(value).strip()
-
-    if text in COMMESSE_STANDARD:
-        return text
-
-    upper = text.upper()
-
-    if upper in COMMESSA_LEGACY_MAP:
-        return COMMESSA_LEGACY_MAP[upper]
-
-    return text
-
-
-def canonical_servizio(value):
-    if value is None:
-        return ""
-
-    text = str(value).strip()
-
-    if text in {
-        "Spazzamenti",
-        "Aree Verdi",
-        "Porta a Porta",
-        "Trasporti",
-        "Raccolta Cartone Selettivo",
-        "Ingombranti",
-    }:
-        return text
-
-    if text in SERVIZIO_LEGACY_MAP:
-        return SERVIZIO_LEGACY_MAP[text]
-
-    return text
-
-
-# ============================================================
-# FILE INIZIALI
-# ============================================================
-
-def ensure_files():
-
-    if not os.path.exists(UTENTI_FILE):
-        safe_to_csv(DEFAULT_USERS, UTENTI_FILE)
-
-    if not os.path.exists(TARIFFE_FILE):
-        safe_to_csv(DEFAULT_TARIFFE, TARIFFE_FILE)
-
-    if not os.path.exists(SERVIZI_FILE):
-        empty = pd.DataFrame(
-            columns=[
-                "ID",
-                "Data",
-                "Commessa",
-                "Servizio",
-                "Dettaglio",
-                "Tonnellate",
-                "Ricavo",
-                "Costo",
-                "Margine",
-                "Ore Personale",
-                "Ore Mezzi",
-                "Operatore",
-                "Note",
-            ]
-        )
-        safe_to_csv(empty, SERVIZI_FILE)
-
-    if not os.path.exists(ORE_FILE):
-        empty = pd.DataFrame()
-        safe_to_csv(empty, ORE_FILE)
-
-    if not os.path.exists(OPERATORI_FILE):
-        empty = pd.DataFrame()
-        safe_to_csv(empty, OPERATORI_FILE)
-
-    if not os.path.exists(MEZZI_FILE):
-        empty = pd.DataFrame()
-        safe_to_csv(empty, MEZZI_FILE)
-
-
-ensure_files()
-
+init_files()
 
 # ============================================================
-# LETTURA UTENTI
+# READ DATASETS
 # ============================================================
 
 def read_users():
-
-    df = flexible_read_csv(UTENTI_FILE)
-
-    aliases = {
-        "username": [
-            "user",
-            "utente",
-            "login",
-            "nome_utente",
-        ],
-        "password": [
-            "pass",
-            "pwd",
-        ],
-        "nome": [
-            "name",
-            "nominativo",
-            "nome_completo",
-        ],
-        "ruolo": [
-            "role",
-            "profilo",
-        ],
-        "cantieri": [
-            "commesse",
-            "cantiere",
-            "cantiere_assegnato",
-            "autorizzazioni",
-        ],
-    }
-
-    df = rename_using_aliases(df, aliases)
-
-    required = [
-        "username",
-        "password",
-        "nome",
-        "ruolo",
-        "cantieri",
-    ]
-
-    # Se il CSV è completamente inutilizzabile,
-    # usiamo i default senza distruggere il file originale.
-    if df.empty or not all(col in df.columns for col in required):
-
-        st.warning(
-            "Il file utenti_cristoforo.csv non ha una struttura riconoscibile. "
-            "Sono stati caricati temporaneamente gli utenti di default."
-        )
-
+    df = read_csv_flexible(FILES["users"])
+    df = aliases_rename(df, {
+        "username": ["user", "utente", "login"],
+        "password": ["pass", "pwd"],
+        "nome": ["name", "nominativo"],
+        "ruolo": ["role", "profilo"],
+        "autorizzazioni": ["cantieri", "commesse", "cantiere", "accessi"],
+    })
+    req = ["username", "password", "nome", "ruolo", "autorizzazioni"]
+    if df.empty or not all(x in df.columns for x in req):
         df = DEFAULT_USERS.copy()
+    df = ensure(df, req)
+    for c in req:
+        df[c] = df[c].astype(str).str.replace("\ufeff", "", regex=False).str.strip()
+    return df[req]
 
-    df = ensure_columns(df, required)
-
-    for col in required:
-        df[col] = (
-            df[col]
-            .astype(str)
-            .str.replace("\ufeff", "", regex=False)
-            .str.strip()
-        )
-
-    return df[required].copy()
-
-
-# ============================================================
-# LETTURA TARIFFE
-# ============================================================
-
-def read_tariffe():
-
-    df = flexible_read_csv(TARIFFE_FILE)
-
-    aliases = {
-        "Categoria": [
-            "categoria_costo",
-            "tipo",
-        ],
-        "Voce": [
-            "voce_costo",
-            "livello",
-            "tipo_mezzo",
-        ],
-        "Costo": [
-            "costo_orario",
-            "valore",
-            "prezzo",
-            "tariffa",
-        ],
-    }
-
-    df = rename_using_aliases(df, aliases)
-
-    required = [
-        "Categoria",
-        "Voce",
-        "Costo",
-    ]
-
-    if df.empty or not all(col in df.columns for col in required):
-        df = DEFAULT_TARIFFE.copy()
-
-    df = ensure_columns(df, required)
-
-    df["Categoria"] = df["Categoria"].astype(str).str.strip()
-    df["Voce"] = df["Voce"].astype(str).str.strip()
-    df["Costo"] = df["Costo"].apply(parse_number)
-
-    return df[required].copy()
-
-
-def tariff(tariffe, categoria, voce, default=0):
-
-    if tariffe is None or tariffe.empty:
-        return default
-
-    mask = (
-        tariffe["Categoria"].astype(str).str.strip().str.lower()
-        == str(categoria).strip().lower()
-    ) & (
-        tariffe["Voce"].astype(str).str.strip().str.lower()
-        == str(voce).strip().lower()
-    )
-
-    result = tariffe.loc[mask, "Costo"]
-
-    if result.empty:
-        return default
-
-    return float(result.iloc[0])
-
-
-# ============================================================
-# LETTURA SERVIZI
-# ============================================================
-
-def read_services():
-
-    df = flexible_read_csv(SERVIZI_FILE)
-
-    aliases = {
-        "ID": [
-            "id_servizio",
-            "id_record",
-            "codice",
-        ],
-        "Data": [
-            "data_servizio",
-            "giorno",
-            "date",
-        ],
-        "Commessa": [
-            "Cantiere",
-            "cantiere",
-            "commessa",
-            "commessa_operativa",
-            "worksite",
-        ],
-        "Servizio": [
-            "Categoria",
-            "categoria",
-            "tipo_servizio",
-            "servizio",
-        ],
-        "Dettaglio": [
-            "dettaglio_operativo",
-            "descrizione",
-            "note_servizio",
-        ],
-        "Tonnellate": [
-            "ton",
-            "tonnellaggio",
-            "quantita_tonnellate",
-        ],
-        "Ricavo": [
-            "ricavi",
-            "revenue",
-            "fatturato",
-            "ricavo_euro",
-        ],
-        "Costo": [
-            "costi",
-            "costo_totale",
-            "costo_euro",
-        ],
-        "Margine": [
-            "margine_netto",
-            "margine_euro",
-            "profitto",
-        ],
-        "Ore Personale": [
-            "ore_personale",
-            "ore_lavorate",
-            "ore_operatori",
-        ],
-        "Ore Mezzi": [
-            "ore_mezzi",
-            "ore_veicoli",
-            "ore_macchine",
-        ],
-        "Operatore": [
-            "operatore",
-            "addetto",
-            "responsabile",
-        ],
-        "Note": [
-            "note",
-            "commenti",
-        ],
-    }
-
-    df = rename_using_aliases(df, aliases)
-
-    required = [
-        "ID",
-        "Data",
-        "Commessa",
-        "Servizio",
-        "Dettaglio",
-        "Tonnellate",
-        "Ricavo",
-        "Costo",
-        "Margine",
-        "Ore Personale",
-        "Ore Mezzi",
-        "Operatore",
-        "Note",
-    ]
-
-    df = ensure_columns(df, required)
-
-    if df.empty:
-        return pd.DataFrame(columns=required)
-
-    # Pulizia stringhe
-    for col in [
-        "ID",
-        "Commessa",
-        "Servizio",
-        "Dettaglio",
-        "Operatore",
-        "Note",
-    ]:
-        df[col] = (
-            df[col]
-            .astype(str)
-            .str.replace("\ufeff", "", regex=False)
-            .str.strip()
-        )
-
-    # Compatibilità con dati vecchi
-    df["Commessa"] = df["Commessa"].apply(canonical_commessa)
-    df["Servizio"] = df["Servizio"].apply(canonical_servizio)
-
-    # Numeri
-    for col in [
-        "Tonnellate",
-        "Ricavo",
-        "Costo",
-        "Margine",
-    ]:
-        df[col] = df[col].apply(parse_number)
-
-    # Ore
-    df["Ore Personale"] = df["Ore Personale"].apply(parse_hours)
-    df["Ore Mezzi"] = df["Ore Mezzi"].apply(parse_hours)
-
-    # Date
-    df["Data"] = df["Data"].apply(parse_date)
-
-    # Se il margine non esiste o è zero, lo ricostruiamo.
-    mask_margin = (
-        (df["Margine"] == 0)
-        & ((df["Ricavo"] != 0) | (df["Costo"] != 0))
-    )
-
-    df.loc[mask_margin, "Margine"] = (
-        df.loc[mask_margin, "Ricavo"]
-        - df.loc[mask_margin, "Costo"]
-    )
-
-    # ID automatico per record privi di ID
-    missing_id = df["ID"].astype(str).str.strip().isin(["", "nan", "None"])
-
-    if missing_id.any():
-        for idx in df.index[missing_id]:
-            df.loc[idx, "ID"] = (
-                f"S-{idx}-{pd.Timestamp.now().strftime('%Y%m%d%H%M%S')}"
-            )
-
-    return df[required].copy()
-
-
-# ============================================================
-# LETTURA ORE
-# ============================================================
-
-def read_hours():
-
-    df = flexible_read_csv(ORE_FILE)
-
-    if df.empty:
-        return pd.DataFrame()
-
-    aliases = {
-        "Data": ["data_turno", "giorno", "date"],
-        "Operatore": ["operatore", "dipendente", "addetto"],
-        "Commessa": ["Cantiere", "cantiere", "commessa"],
-        "Ore": ["ore_lavorate", "ore_totali", "hours"],
-        "Straordinario": ["ore_extra", "extra", "straordinari"],
-    }
-
-    df = rename_using_aliases(df, aliases)
-
-    for col in [
-        "Data",
-        "Operatore",
-        "Commessa",
-        "Ore",
-        "Straordinario",
-    ]:
-        if col not in df.columns:
-            df[col] = ""
-
-    df["Data"] = df["Data"].apply(parse_date)
-    df["Ore"] = df["Ore"].apply(parse_hours)
-    df["Straordinario"] = df["Straordinario"].apply(parse_hours)
-
-    df["Commessa"] = df["Commessa"].apply(canonical_commessa)
-
-    return df
-
-
-# ============================================================
-# ANAGRAFICA OPERATORI
-# ============================================================
 
 def read_operators():
-
-    df = flexible_read_csv(OPERATORI_FILE)
-
-    if df.empty:
-        return pd.DataFrame(
-            columns=[
-                "Matricola",
-                "Nome",
-                "Cognome",
-                "Livello",
-                "Commessa",
-            ]
-        )
-
-    aliases = {
+    df = read_csv_flexible(FILES["operators"])
+    df = aliases_rename(df, {
         "Matricola": ["matricola", "id_operatore", "codice"],
-        "Nome": ["nome", "first_name"],
-        "Cognome": ["cognome", "last_name"],
-        "Livello": ["livello", "qualifica", "level"],
+        "Nome": ["nome"],
+        "Cognome": ["cognome"],
+        "Contratto": ["ccnl", "contratto_collettivo"],
+        "Livello": ["livello", "qualifica"],
         "Commessa": ["cantiere", "commessa"],
-    }
+    })
+    req = ["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Commessa"]
+    df = ensure(df, req)
+    for c in req:
+        df[c] = df[c].astype(str).str.strip()
+    return df[req]
 
-    df = rename_using_aliases(df, aliases)
-
-    required = [
-        "Matricola",
-        "Nome",
-        "Cognome",
-        "Livello",
-        "Commessa",
-    ]
-
-    df = ensure_columns(df, required)
-
-    df["Commessa"] = df["Commessa"].apply(canonical_commessa)
-
-    return df[required].copy()
-
-
-# ============================================================
-# ANAGRAFICA MEZZI
-# ============================================================
 
 def read_vehicles():
-
-    df = flexible_read_csv(MEZZI_FILE)
-
-    if df.empty:
-        return pd.DataFrame(
-            columns=[
-                "Targa",
-                "Mezzo",
-                "Categoria",
-                "Commessa",
-            ]
-        )
-
-    aliases = {
+    df = read_csv_flexible(FILES["vehicles"])
+    df = aliases_rename(df, {
         "Targa": ["targa", "plate"],
-        "Mezzo": ["mezzo", "descrizione", "veicolo"],
-        "Categoria": ["categoria", "tipo", "classe"],
+        "Mezzo": ["mezzo", "veicolo", "descrizione"],
+        "Tipo": ["tipo", "categoria", "classe"],
         "Commessa": ["cantiere", "commessa"],
-    }
+    })
+    req = ["Targa", "Mezzo", "Tipo", "Commessa"]
+    df = ensure(df, req)
+    for c in req:
+        df[c] = df[c].astype(str).str.strip()
+    return df[req]
 
-    df = rename_using_aliases(df, aliases)
 
-    required = [
-        "Targa",
-        "Mezzo",
-        "Categoria",
-        "Commessa",
+def read_tariffs():
+    df = read_csv_flexible(FILES["tariffs"])
+    df = aliases_rename(df, {
+        "Tipo": ["categoria"],
+        "Contratto": ["ccnl"],
+        "Livello_o_Tipo": ["livello", "voce", "tipo_mezzo"],
+        "Costo_Orario": ["costo_orario", "costo", "tariffa"],
+        "Attivo": ["attiva", "active"],
+    })
+    req = ["Tipo", "Contratto", "Livello_o_Tipo", "Costo_Orario", "Attivo"]
+    df = ensure(df, req)
+    df["Costo_Orario"] = df["Costo_Orario"].apply(parse_num)
+    return df[req]
+
+
+def read_services():
+    df = read_csv_flexible(FILES["services"])
+
+    # Compatibilità con lo storico precedente: se il nuovo archivio è vuoto,
+    # leggiamo in sola lettura storico_servizi_v9.csv senza modificarlo.
+    if df.empty and os.path.exists(LEGACY_SERVICES_FILE):
+        legacy = read_csv_flexible(LEGACY_SERVICES_FILE)
+        if not legacy.empty:
+            legacy = aliases_rename(legacy, {
+                "ID": ["id", "id_servizio", "codice"],
+                "Data": ["data_servizio", "giorno", "date"],
+                "CommessaLegacy": ["cantiere", "commessa"],
+                "ServizioLegacy": ["categoria", "servizio", "tipo_servizio"],
+                "DettaglioLegacy": ["dettaglio", "sottoservizio"],
+                "Tonnellate": ["ton", "tonnellaggio"],
+                "Ricavi": ["ricavo", "revenue", "fatturato"],
+                "Costo Totale": ["costo", "costi", "costo_totale"],
+                "Margine": ["margine_netto", "margine_euro"],
+                "Ore Personale": ["ore_personale", "ore_operatori"],
+                "Ore Mezzi": ["ore_mezzi", "ore_veicoli"],
+            })
+            legacy = ensure(legacy, ["ID", "Data", "CommessaLegacy", "ServizioLegacy", "DettaglioLegacy", "Tonnellate", "Ricavi", "Costo Totale", "Margine", "Ore Personale", "Ore Mezzi"])
+            df = pd.DataFrame({
+                "ID": legacy["ID"],
+                "Data": legacy["Data"],
+                "Servizio": legacy["ServizioLegacy"],
+                "Sottoservizio": legacy["DettaglioLegacy"].where(legacy["DettaglioLegacy"].astype(str).str.strip() != "", legacy["CommessaLegacy"]),
+                "Tonnellate": legacy["Tonnellate"],
+                "Ricavi": legacy["Ricavi"],
+                "Costo Personale": 0.0,
+                "Costo Mezzi": 0.0,
+                "Overhead": 0.0,
+                "Costo Totale": legacy["Costo Totale"],
+                "Margine": legacy["Margine"],
+                "Note": "Storico legacy",
+                "Creato Da": "Legacy",
+            })
+
+    req = [
+        "ID", "Data", "Servizio", "Sottoservizio", "Tonnellate", "Ricavi",
+        "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Note", "Creato Da"
     ]
+    df = aliases_rename(df, {
+        "ID": ["id", "id_consuntivo"],
+        "Data": ["giorno", "data_servizio"],
+        "Servizio": ["categoria", "tipo_servizio"],
+        "Sottoservizio": ["sotto_servizio", "dettaglio", "commessa"],
+        "Tonnellate": ["ton", "tonnellaggio"],
+        "Ricavi": ["ricavo", "fatturato", "revenue"],
+        "Costo Personale": ["costo_personale"],
+        "Costo Mezzi": ["costo_mezzi"],
+        "Overhead": ["costi_indiretti"],
+        "Costo Totale": ["costo", "costi"],
+        "Margine": ["margine_netto"],
+        "Note": ["note", "commenti"],
+        "Creato Da": ["operatore_creazione", "utente"],
+    })
+    df = ensure(df, req)
+    df["Data"] = df["Data"].apply(parse_date)
+    for c in ["Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine"]:
+        df[c] = df[c].apply(parse_num)
+    return df[req]
 
-    df = ensure_columns(df, required)
 
-    df["Commessa"] = df["Commessa"].apply(canonical_commessa)
+def read_personnel():
+    df = read_csv_flexible(FILES["personnel"])
+    req = [
+        "ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Matricola",
+        "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale"
+    ]
+    df = aliases_rename(df, {
+        "ID Consuntivo": ["id", "id_consuntivo"],
+        "Data": ["data_servizio", "giorno"],
+        "Servizio": ["categoria"],
+        "Sottoservizio": ["sotto_servizio", "dettaglio", "commessa"],
+        "Matricola": ["matricola", "id_operatore"],
+        "Operatore": ["operatore", "dipendente", "addetto"],
+        "Contratto": ["ccnl"],
+        "Livello": ["livello"],
+        "Ore": ["ore_lavorate", "ore"],
+        "Costo Orario": ["costo_orario", "tariffa_oraria"],
+        "Costo Totale": ["costo", "costo_totale"],
+    })
+    df = ensure(df, req)
+    df["Data"] = df["Data"].apply(parse_date)
+    df["Ore"] = df["Ore"].apply(parse_hours)
+    df["Costo Orario"] = df["Costo Orario"].apply(parse_num)
+    df["Costo Totale"] = df["Costo Totale"].apply(parse_num)
+    return df[req]
 
-    return df[required].copy()
+
+def read_vehicle_detail():
+    df = read_csv_flexible(FILES["vehicle_detail"])
+    req = [
+        "ID Consuntivo", "Data", "Servizio", "Sottoservizio", "Targa",
+        "Mezzo", "Tipo", "Ore", "Costo Orario", "Costo Totale"
+    ]
+    df = aliases_rename(df, {
+        "ID Consuntivo": ["id", "id_consuntivo"],
+        "Data": ["data_servizio", "giorno"],
+        "Servizio": ["categoria"],
+        "Sottoservizio": ["sotto_servizio", "dettaglio", "commessa"],
+        "Targa": ["targa", "plate"],
+        "Mezzo": ["mezzo", "veicolo"],
+        "Tipo": ["tipo", "categoria_mezzo"],
+        "Ore": ["ore_mezzo", "ore"],
+        "Costo Orario": ["costo_orario", "tariffa_oraria"],
+        "Costo Totale": ["costo", "costo_totale"],
+    })
+    df = ensure(df, req)
+    df["Data"] = df["Data"].apply(parse_date)
+    df["Ore"] = df["Ore"].apply(parse_hours)
+    df["Costo Orario"] = df["Costo Orario"].apply(parse_num)
+    df["Costo Totale"] = df["Costo Totale"].apply(parse_num)
+    return df[req]
 
 
-# ============================================================
-# AUTORIZZAZIONI
-# ============================================================
-
-def authorized_commesse(user_row):
-
-    if user_row.empty:
-        return []
-
-    raw = str(user_row.iloc[0]["cantieri"]).strip()
-
-    if raw.upper() in [
-        "TUTTI",
-        "ALL",
-        "*",
-    ]:
-        return COMMESSE_STANDARD.copy()
-
-    values = re.split(r"[,;|]", raw)
-
-    result = []
-
-    for value in values:
-        value = value.strip()
-
-        if not value:
-            continue
-
-        canonical = canonical_commessa(value)
-
-        if canonical in COMMESSE_STANDARD:
-            result.append(canonical)
-
-    return sorted(
-        list(set(result)),
-        key=lambda x: COMMESSE_STANDARD.index(x),
+def current_datasets():
+    return (
+        read_users(), read_operators(), read_vehicles(), read_tariffs(),
+        read_services(), read_personnel(), read_vehicle_detail()
     )
+
+# ============================================================
+# AUTHORIZATION
+# ============================================================
+
+def split_access(value):
+    if str(value).strip().upper() in {"TUTTI", "ALL", "*"}:
+        return SUBSERVICES
+    vals = re.split(r"[,;|]", str(value))
+    return sorted(set([v.strip() for v in vals if v.strip()]))
 
 
 def is_admin():
-    return (
-        st.session_state.get("ruolo", "").lower()
-        in ["admin", "direzione"]
-    )
+    return st.session_state.get("ruolo", "").strip().lower() in {"admin", "direzione"}
 
 
-def filter_authorized(df, column="Commessa"):
-
-    if df is None or df.empty:
-        return df
-
+def allowed_subservices():
     if is_admin():
+        return SUBSERVICES.copy()
+    return [x for x in split_access(st.session_state.get("autorizzazioni", "")) if x in SUBSERVICES]
+
+
+def authorized_services(df, col="Sottoservizio"):
+    if df.empty or is_admin():
         return df.copy()
-
-    allowed = st.session_state.get(
-        "commesse_autorizzate",
-        [],
-    )
-
+    allowed = allowed_subservices()
     if not allowed:
         return df.iloc[0:0].copy()
-
-    result = df.copy()
-
-    result["_commessa_check"] = (
-        result[column]
-        .astype(str)
-        .apply(canonical_commessa)
-    )
-
-    result = result[
-        result["_commessa_check"].isin(allowed)
-    ].copy()
-
-    result.drop(
-        columns=["_commessa_check"],
-        inplace=True,
-        errors="ignore",
-    )
-
-    return result
-
+    return df[df[col].astype(str).isin(allowed)].copy()
 
 # ============================================================
-# SALVATAGGIO SERVIZI
+# COST LOOKUP
 # ============================================================
 
-def save_services(df):
-
-    # Manteniamo sempre le colonne principali.
-    required = [
-        "ID",
-        "Data",
-        "Commessa",
-        "Servizio",
-        "Dettaglio",
-        "Tonnellate",
-        "Ricavo",
-        "Costo",
-        "Margine",
-        "Ore Personale",
-        "Ore Mezzi",
-        "Operatore",
-        "Note",
-    ]
-
-    df = ensure_columns(df, required)
-
-    # Date in formato leggibile
-    save_df = df.copy()
-
-    save_df["Data"] = pd.to_datetime(
-        save_df["Data"],
-        errors="coerce",
-    ).dt.strftime("%d/%m/%Y")
-
-    safe_to_csv(
-        save_df[required],
-        SERVIZI_FILE,
+def labor_rate(tariffs, contract, level):
+    if tariffs.empty:
+        return 0.0
+    m = (
+        (tariffs["Tipo"].astype(str).str.lower() == "personale")
+        & (tariffs["Contratto"].astype(str).str.strip() == str(contract).strip())
+        & (tariffs["Livello_o_Tipo"].astype(str).str.strip() == str(level).strip())
+        & (tariffs["Attivo"].astype(str).str.upper() == "SI")
     )
+    r = tariffs.loc[m, "Costo_Orario"]
+    return float(r.iloc[0]) if not r.empty else 0.0
 
 
-def append_service(record):
-
-    current = read_services()
-
-    new_row = pd.DataFrame([record])
-
-    combined = pd.concat(
-        [current, new_row],
-        ignore_index=True,
+def vehicle_rate(tariffs, vehicle_type):
+    if tariffs.empty:
+        return 0.0
+    m = (
+        (tariffs["Tipo"].astype(str).str.lower() == "mezzo")
+        & (tariffs["Livello_o_Tipo"].astype(str).str.strip() == str(vehicle_type).strip())
+        & (tariffs["Attivo"].astype(str).str.upper() == "SI")
     )
+    r = tariffs.loc[m, "Costo_Orario"]
+    return float(r.iloc[0]) if not r.empty else 0.0
 
-    # ID unico
-    combined["ID"] = combined["ID"].astype(str)
 
-    combined = combined.drop_duplicates(
-        subset=["ID"],
-        keep="last",
+def overhead_rate(tariffs):
+    if tariffs.empty:
+        return 15.0
+    m = (
+        (tariffs["Tipo"].astype(str).str.lower() == "generale")
+        & (tariffs["Livello_o_Tipo"].astype(str).str.strip().str.lower() == "overhead")
     )
+    r = tariffs.loc[m, "Costo_Orario"]
+    return float(r.iloc[0]) if not r.empty else 15.0
 
-    save_services(combined)
+# ============================================================
+# IMPORT CERTIFICAZIONE
+# ============================================================
 
+CERT_ALIASES = {
+    "Data": ["giorno", "data_servizio", "date"],
+    "Matricola": ["matricola", "id_operatore", "codice_operatore", "employee_id"],
+    "Operatore": ["operatore", "dipendente", "addetto", "employee", "nome_operatore"],
+    "Ore": ["ore", "ore_lavorate", "hours", "durata", "ore_totali"],
+    "Targa": ["targa", "plate", "veicolo_targa"],
+    "Mezzo": ["mezzo", "veicolo", "vehicle"],
+    "Tipo Mezzo": ["tipo_mezzo", "categoria_mezzo", "classe_mezzo"],
+    "Servizio": ["servizio", "categoria", "tipo_servizio"],
+    "Sottoservizio": ["sottoservizio", "sotto_servizio", "dettaglio", "commessa", "cantiere"],
+    "Risorsa": ["tipo_risorsa", "risorsa", "tipo"],
+}
+
+
+def read_uploaded_file(uploaded):
+    name = uploaded.name.lower()
+    if name.endswith(".csv"):
+        raw = uploaded.getvalue()
+        text = None
+        for enc in ["utf-8-sig", "utf-8", "latin1"]:
+            try:
+                text = raw.decode(enc)
+                break
+            except Exception:
+                pass
+        if text is None:
+            raise ValueError("Codifica CSV non riconosciuta.")
+        return pd.read_csv(io.StringIO(text), sep=None, engine="python"), None
+    if name.endswith((".xlsx", ".xls")):
+        xl = pd.ExcelFile(uploaded)
+        return None, xl
+    raise ValueError("Formato non supportato.")
+
+
+def normalize_certification(df):
+    df = aliases_rename(df, CERT_ALIASES)
+    df = ensure(df, [
+        "Data", "Matricola", "Operatore", "Ore", "Targa", "Mezzo",
+        "Tipo Mezzo", "Servizio", "Sottoservizio", "Risorsa"
+    ])
+    for c in ["Matricola", "Operatore", "Targa", "Mezzo", "Tipo Mezzo", "Servizio", "Sottoservizio", "Risorsa"]:
+        df[c] = df[c].astype(str).str.strip()
+    df["Data"] = df["Data"].apply(parse_date)
+    df["Ore"] = df["Ore"].apply(parse_hours)
+
+    # Se il file certificazione non identifica la risorsa, inferiamo:
+    # presenza operatore -> personale; presenza targa/mezzo -> mezzo.
+    def infer(row):
+        r = str(row["Risorsa"]).strip().lower()
+        if r in {"personale", "operatore", "dipendente", "operatori"}:
+            return "Personale"
+        if r in {"mezzo", "mezzi", "veicolo", "veicoli"}:
+            return "Mezzo"
+        if row["Operatore"].strip() or row["Matricola"].strip():
+            return "Personale"
+        if row["Targa"].strip() or row["Mezzo"].strip():
+            return "Mezzo"
+        return ""
+
+    df["Risorsa"] = df.apply(infer, axis=1)
+    return df
 
 # ============================================================
 # SESSION STATE
 # ============================================================
 
-if "loggato" not in st.session_state:
-    st.session_state.loggato = False
-
-if "utente" not in st.session_state:
-    st.session_state.utente = ""
-
-if "nome" not in st.session_state:
-    st.session_state.nome = ""
-
-if "ruolo" not in st.session_state:
-    st.session_state.ruolo = ""
-
-if "commesse_autorizzate" not in st.session_state:
-    st.session_state.commesse_autorizzate = []
-
+for key, default in {
+    "logged": False,
+    "username": "",
+    "nome": "",
+    "ruolo": "",
+    "autorizzazioni": "",
+    "cert_df": pd.DataFrame(),
+    "cert_file_name": "",
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 # ============================================================
 # LOGIN
 # ============================================================
 
-if not st.session_state.loggato:
-
-    st.markdown(
-        """
-        <div class="login-box">
-            <div class="login-logo">CRISTOFORO</div>
-            <div class="login-sub">
-                Control Room · Centro di Costo
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    col1, col2, col3 = st.columns([1, 2, 1])
-
-    with col2:
-
-        username = st.text_input(
-            "Username",
-            placeholder="Inserisci username",
-        )
-
-        password = st.text_input(
-            "Password",
-            type="password",
-            placeholder="Inserisci password",
-        )
-
-        if st.button(
-            "Accedi alla Control Room",
-            use_container_width=True,
-            type="primary",
-        ):
-
+if not st.session_state.logged:
+    st.markdown("""
+    <div class="login">
+      <div class="login-logo">♻️ CRISTOFORO</div>
+      <div class="login-copy">Control Room · Consuntivazione Economica</div>
+    </div>
+    """, unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        if st.button("Accedi alla Control Room", type="primary", use_container_width=True):
             users = read_users()
-
-            username_clean = str(username).strip()
-            password_clean = str(password).strip()
-
-            match = users[
-                (
-                    users["username"]
-                    .astype(str)
-                    .str.strip()
-                    == username_clean
-                )
-                &
-                (
-                    users["password"]
-                    .astype(str)
-                    .str.strip()
-                    == password_clean
-                )
-            ]
-
-            if not match.empty:
-
-                row = match.iloc[0]
-
-                st.session_state.loggato = True
-                st.session_state.utente = username_clean
-                st.session_state.nome = str(row["nome"]).strip()
-                st.session_state.ruolo = str(row["ruolo"]).strip()
-                st.session_state.commesse_autorizzate = authorized_commesse(
-                    match
-                )
-
-                st.rerun()
-
-            else:
+            m = users[(users["username"] == u.strip()) & (users["password"] == p.strip())]
+            if m.empty:
                 st.error("Username o password non corretti.")
-
+            else:
+                row = m.iloc[0]
+                st.session_state.logged = True
+                st.session_state.username = row["username"]
+                st.session_state.nome = row["nome"]
+                st.session_state.ruolo = row["ruolo"]
+                st.session_state.autorizzazioni = row["autorizzazioni"]
+                st.rerun()
     st.stop()
 
-
 # ============================================================
-# DATI GLOBALI
+# DATASETS
 # ============================================================
 
-users = read_users()
-services = read_services()
-hours = read_hours()
-operators = read_operators()
-vehicles = read_vehicles()
-tariffe = read_tariffe()
-
-services_auth = filter_authorized(services)
-
+users, operators, vehicles, tariffs, services, personnel_detail, vehicle_detail = current_datasets()
 
 # ============================================================
 # SIDEBAR
 # ============================================================
 
 with st.sidebar:
-
-    st.markdown(
-        """
-        <div class="sidebar-brand">
-            <div class="sidebar-logo">♻️ CRISTOFORO</div>
-            <div class="sidebar-subtitle">
-                Control Room · Centro di Costo
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
+    st.markdown("""
+    <div class="brand">
+      <div class="brand-title">♻️ CRISTOFORO</div>
+      <div class="brand-sub">Control Room · Centro di Costo</div>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown("---")
 
-    menu_items = [
-        "Overview",
-        "Commesse",
-        "Validazione Turni",
-        "Ore",
-        "Centro di Costo",
-        "Mezzi",
-        "Report",
-    ]
-
+    pages = ["Dashboard", "Consuntivazione", "Certificazioni", "Economico"]
     if is_admin():
-        menu_items += [
-            "Anagrafiche",
-            "Gestione Accessi",
-        ]
-
-    menu = st.radio(
-        "Navigazione",
-        menu_items,
-        label_visibility="collapsed",
-    )
+        pages += ["Anagrafiche", "Tariffari & Contratti", "Accessi"]
+    page = st.radio("Menu", pages, label_visibility="collapsed")
 
     st.markdown("---")
-
-    st.caption(
-        f"👤 {st.session_state.nome}"
-    )
-
-    st.caption(
-        f"Ruolo: {st.session_state.ruolo}"
-    )
-
-    st.caption(
-        f"Commesse: {len(st.session_state.commesse_autorizzate)}"
-    )
-
-    if st.button(
-        "Esci",
-        use_container_width=True,
-    ):
-        for key in [
-            "loggato",
-            "utente",
-            "nome",
-            "ruolo",
-            "commesse_autorizzate",
-        ]:
+    st.caption(f"👤 {st.session_state.nome}")
+    st.caption(f"Ruolo: {st.session_state.ruolo}")
+    allowed = allowed_subservices()
+    st.caption(f"Accesso: {len(allowed)} sottoservizi")
+    if st.button("Esci", use_container_width=True):
+        for key in ["logged", "username", "nome", "ruolo", "autorizzazioni"]:
             st.session_state.pop(key, None)
-
         st.rerun()
 
-
 # ============================================================
-# HEADER
+# TOPBAR
 # ============================================================
 
-titles = {
-    "Overview": (
-        "Control Room",
-        "Vista direzionale delle performance operative ed economiche",
-    ),
-    "Commesse": (
-        "Commesse",
-        "Controllo economico per singola commessa",
-    ),
-    "Validazione Turni": (
-        "Validazione Turni",
-        "Importazione e controllo delle ore operative",
-    ),
-    "Ore": (
-        "Ore",
-        "Analisi delle ore lavorate e delle anomalie",
-    ),
-    "Centro di Costo": (
-        "Centro di Costo",
-        "Registrazione e analisi dei costi per servizio",
-    ),
-    "Mezzi": (
-        "Mezzi",
-        "Controllo economico e operativo del parco mezzi",
-    ),
-    "Report": (
-        "Report",
-        "Esportazione dei dati per analisi e amministrazione",
-    ),
-    "Anagrafiche": (
-        "Anagrafiche",
-        "Operatori e mezzi",
-    ),
-    "Gestione Accessi": (
-        "Gestione Accessi",
-        "Utenti, ruoli e commesse autorizzate",
-    ),
+page_meta = {
+    "Dashboard": ("Control Room", "Panoramica operativa ed economica"),
+    "Consuntivazione": ("Nuovo consuntivo", "Servizio, sottoservizio, personale, mezzi e margine"),
+    "Certificazioni": ("Certificazioni ore", "Carica e controlla il file certificato di operatori e mezzi"),
+    "Economico": ("Centro di Costo", "Analisi dei costi per servizio e sottoservizio"),
+    "Anagrafiche": ("Anagrafiche", "Operatori e mezzi"),
+    "Tariffari & Contratti": ("Tariffari & Contratti", "Contratti, livelli e costi orari aziendali"),
+    "Accessi": ("Accessi", "Utenti e autorizzazioni"),
 }
+title, subtitle = page_meta[page]
+st.markdown(f"""
+<div class="topbar">
+  <div>
+    <div class="title">{title}</div>
+    <div class="subtitle">{subtitle}</div>
+  </div>
+  <div class="user-pill">● {st.session_state.nome}</div>
+</div>
+""", unsafe_allow_html=True)
 
-title, subtitle = titles[menu]
+# ============================================================
+# DASHBOARD
+# ============================================================
 
-st.markdown(
-    f"""
-    <div class="topbar">
-        <div>
-            <div class="page-title">{title}</div>
-            <div class="page-subtitle">{subtitle}</div>
-        </div>
-        <div class="user-pill">
-            ● {st.session_state.nome}
-        </div>
+if page == "Dashboard":
+    allowed_df = authorized_services(services)
+    st.markdown(f"""
+    <div class="hero">
+      <div class="hero-kicker">Centro di costo operativo</div>
+      <div class="hero-title">Servizi → Sottoservizi → Risorse certificate</div>
+      <div class="hero-copy">Una sola vista per leggere ricavi, costi, ore uomo, ore mezzi e margine.</div>
     </div>
-    """,
-    unsafe_allow_html=True,
-)
+    """, unsafe_allow_html=True)
 
-
-# ============================================================
-# FILTRI GLOBALI
-# ============================================================
-
-if menu in [
-    "Overview",
-    "Commesse",
-    "Ore",
-    "Mezzi",
-    "Report",
-]:
-
-    col1, col2 = st.columns([2, 1])
-
-    available_commesse = st.session_state.commesse_autorizzate
-
-    if is_admin():
-        available_commesse = COMMESSE_STANDARD.copy()
-
-    with col1:
-
-        selected_commessa = st.selectbox(
-            "Commessa",
-            ["Tutte"] + available_commesse,
-        )
-
-    with col2:
-
-        period_options = [
-            "Tutto",
-            "Ultimi 7 giorni",
-            "Ultimi 30 giorni",
-            "Ultimi 90 giorni",
-        ]
-
-        selected_period = st.selectbox(
-            "Periodo",
-            period_options,
-        )
-
-else:
-    selected_commessa = "Tutte"
-    selected_period = "Tutto"
-
-
-# ============================================================
-# FUNZIONE FILTRO PERIODO
-# ============================================================
-
-def apply_period_filter(df, date_column="Data"):
-
-    if df is None or df.empty:
-        return df
-
-    if date_column not in df.columns:
-        return df
-
-    result = df.copy()
-
-    result[date_column] = pd.to_datetime(
-        result[date_column],
-        errors="coerce",
-    )
-
-    if selected_period == "Tutto":
-        return result
-
-    today = pd.Timestamp.today().normalize()
-
-    days = {
-        "Ultimi 7 giorni": 7,
-        "Ultimi 30 giorni": 30,
-        "Ultimi 90 giorni": 90,
-    }.get(selected_period, 99999)
-
-    start = today - pd.Timedelta(days=days)
-
-    return result[
-        result[date_column].isna()
-        | (result[date_column] >= start)
-    ].copy()
-
-
-# ============================================================
-# DATASET FILTRATO
-# ============================================================
-
-filtered_services = services_auth.copy()
-
-if selected_commessa != "Tutte":
-    filtered_services = filtered_services[
-        filtered_services["Commessa"].apply(
-            canonical_commessa
-        )
-        == selected_commessa
-    ].copy()
-
-filtered_services = apply_period_filter(
-    filtered_services
-)
-
-
-# ============================================================
-# OVERVIEW
-# ============================================================
-
-if menu == "Overview":
-
-    if selected_commessa == "Tutte":
-
-        hero_name = "Tutte le commesse"
-        hero_detail = (
-            "Vista aggregata sulle commesse a cui hai accesso"
-        )
-
-    else:
-
-        hero_name = selected_commessa
-        hero_detail = (
-            f"Servizi disponibili: "
-            f"{', '.join(SERVIZI_PER_COMMESSA.get(selected_commessa, []))}"
-        )
-
-    st.markdown(
-        f"""
-        <div class="hero">
-            <div class="hero-label">Commessa selezionata</div>
-            <div class="hero-title">{hero_name}</div>
-            <div class="hero-detail">{hero_detail}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    ricavi = filtered_services["Ricavo"].sum()
-    costi = filtered_services["Costo"].sum()
-    margine = filtered_services["Margine"].sum()
-    tonnellate = filtered_services["Tonnellate"].sum()
-    ore_personale = filtered_services["Ore Personale"].sum()
-    ore_mezzi = filtered_services["Ore Mezzi"].sum()
-
-    margine_pct = (
-        margine / ricavi * 100
-        if ricavi
-        else 0
-    )
-
-    cols = st.columns(6)
-
-    kpis = [
-        ("Ricavi", euro(ricavi), "Fatturato registrato"),
-        ("Costi", euro(costi), "Costi complessivi"),
-        ("Margine", euro(margine), pct(margine_pct)),
-        ("Tonnellate", number_it(tonnellate), "Quantità gestita"),
-        ("Ore personale", hours_text(ore_personale), "Ore operative"),
-        ("Ore mezzi", hours_text(ore_mezzi), "Utilizzo mezzi"),
+    cols = st.columns(4)
+    metrics = [
+        ("Ricavi", allowed_df["Ricavi"].sum(), "fatturato consuntivato"),
+        ("Costo totale", allowed_df["Costo Totale"].sum(), "personale + mezzi + indiretti"),
+        ("Margine", allowed_df["Margine"].sum(), "ricavi - costo totale"),
+        ("Ore uomo", personnel_detail["Ore"].sum(), "da certificazione"),
     ]
-
-    for col, (label, value, note) in zip(cols, kpis):
-
+    for col, (label, value, note) in zip(cols, metrics):
         with col:
+            value_txt = euro(value) if label != "Ore uomo" else f"{num(value)} h"
+            st.markdown(f"""
+            <div class="kpi">
+              <div class="kpi-label">{label}</div>
+              <div class="kpi-value">{value_txt}</div>
+              <div class="kpi-note">{note}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-            st.markdown(
-                f"""
-                <div class="kpi">
-                    <div class="kpi-label">{label}</div>
-                    <div class="kpi-value">{value}</div>
-                    <div class="kpi-note">{note}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    st.markdown('<div class="section-title">Navigazione operativa</div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    cards = [
+        (c1, "01", "Servizio", "Seleziona il servizio principale e passa ai sottoservizi disponibili."),
+        (c2, "02", "Certificazione", "Carica il file ore e fai riconoscere automaticamente operatori e mezzi."),
+        (c3, "03", "Costo & margine", "Applica contratto, livello, tariffa oraria e costo mezzi."),
+    ]
+    for col, n, t, d in cards:
+        with col:
+            st.markdown(f"""
+            <div class="step-card">
+              <div class="step-number">Passo {n}</div>
+              <div class="step-title">{t}</div>
+              <div class="step-copy">{d}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-    st.markdown(
-        '<div class="section-title">Andamento economico</div>',
-        unsafe_allow_html=True,
-    )
-
-    if not filtered_services.empty:
-
-        trend = (
-            filtered_services
-            .dropna(subset=["Data"])
-            .groupby("Data")[
-                ["Ricavo", "Costo", "Margine"]
-            ]
-            .sum()
-            .sort_index()
-        )
-
+    st.markdown('<div class="section-title">Andamento economico</div>', unsafe_allow_html=True)
+    if not allowed_df.empty:
+        trend = allowed_df.copy()
+        trend["Data"] = pd.to_datetime(trend["Data"], errors="coerce")
+        trend = trend.dropna(subset=["Data"])
         if not trend.empty:
+            trend = trend.groupby("Data")[["Ricavi", "Costo Totale", "Margine"]].sum().sort_index()
             st.line_chart(trend)
 
-        else:
-            st.info(
-                "Non ci sono date sufficienti per visualizzare il trend."
-            )
-
-    else:
-        st.info("Nessun dato disponibile per i filtri selezionati.")
-
-    st.markdown(
-        '<div class="section-title">Stato economico</div>',
-        unsafe_allow_html=True,
-    )
-
-    if margine > 0:
-        status_html = (
-            '<span class="status-ok">● MARGINE POSITIVO</span>'
-        )
-    elif margine == 0:
-        status_html = (
-            '<span class="status-warning">● PAREGGIO</span>'
-        )
-    else:
-        status_html = (
-            '<span class="status-critical">● MARGINE NEGATIVO</span>'
-        )
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.markdown(
-            f"""
-            <div class="info-card">
-                <div class="info-title">Margine</div>
-                <div class="info-value">{euro(margine)}</div>
-                {status_html}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with c2:
-
-        costo_ton = (
-            costi / tonnellate
-            if tonnellate
-            else 0
-        )
-
-        st.markdown(
-            f"""
-            <div class="info-card">
-                <div class="info-title">Costo / tonnellata</div>
-                <div class="info-value">{euro(costo_ton)}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with c3:
-
-        ricavo_ton = (
-            ricavi / tonnellate
-            if tonnellate
-            else 0
-        )
-
-        st.markdown(
-            f"""
-            <div class="info-card">
-                <div class="info-title">Ricavo / tonnellata</div>
-                <div class="info-value">{euro(ricavo_ton)}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
+    st.markdown('<div class="section-title">Mix servizi</div>', unsafe_allow_html=True)
+    if not allowed_df.empty:
+        mix = allowed_df.groupby("Servizio")["Costo Totale"].sum().sort_values(ascending=False)
+        st.bar_chart(mix)
 
 # ============================================================
-# COMMESSE
+# CERTIFICAZIONI
 # ============================================================
 
-elif menu == "Commesse":
+elif page == "Certificazioni":
+    st.markdown('<div class="section-title">1 · Carica certificazione ore</div>', unsafe_allow_html=True)
+    st.info("Il caricamento accetta CSV/XLSX. L'app prova a riconoscere automaticamente data, operatore, ore, targa, mezzo e sottoservizio.")
 
-    st.markdown(
-        '<div class="section-title">Performance per commessa</div>',
-        unsafe_allow_html=True,
-    )
-
-    if services_auth.empty:
-
-        st.info("Non ci sono dati disponibili.")
-
-    else:
-
-        summary = (
-            services_auth
-            .groupby("Commessa")
-            .agg(
-                Ricavi=("Ricavo", "sum"),
-                Costi=("Costo", "sum"),
-                Margine=("Margine", "sum"),
-                Tonnellate=("Tonnellate", "sum"),
-                Ore=("Ore Personale", "sum"),
-            )
-            .reset_index()
-        )
-
-        summary["Margine %"] = np.where(
-            summary["Ricavi"] != 0,
-            summary["Margine"]
-            / summary["Ricavi"]
-            * 100,
-            0,
-        )
-
-        summary = summary[
-            summary["Commessa"].isin(
-                st.session_state.commesse_autorizzate
-            )
-            | is_admin()
-        ]
-
-        display = summary.copy()
-
-        display["Ricavi"] = display["Ricavi"].apply(euro)
-        display["Costi"] = display["Costi"].apply(euro)
-        display["Margine"] = display["Margine"].apply(euro)
-        display["Tonnellate"] = display["Tonnellate"].apply(
-            lambda x: number_it(x)
-        )
-        display["Ore"] = display["Ore"].apply(
-            lambda x: number_it(x)
-        )
-        display["Margine %"] = display["Margine %"].apply(
-            lambda x: pct(x)
-        )
-
-        st.dataframe(
-            display,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-
-# ============================================================
-# VALIDAZIONE TURNI
-# ============================================================
-
-elif menu == "Validazione Turni":
-
-    st.markdown(
-        '<div class="section-title">Importazione turni</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.info(
-        "Puoi importare file CSV oppure Excel. "
-        "Il sistema tenta automaticamente di riconoscere "
-        "separatori e nomi delle colonne."
-    )
-
-    uploaded = st.file_uploader(
-        "Carica il file dei turni",
-        type=["csv", "xlsx", "xls"],
-    )
+    uploaded = st.file_uploader("File certificazione", type=["csv", "xlsx", "xls"])
 
     if uploaded:
-
         try:
-
-            if uploaded.name.lower().endswith(".csv"):
-
-                raw = uploaded.getvalue()
-
-                decoded = None
-
-                for encoding in [
-                    "utf-8-sig",
-                    "utf-8",
-                    "latin1",
-                ]:
-                    try:
-                        decoded = raw.decode(encoding)
-                        break
-                    except Exception:
-                        continue
-
-                if decoded is None:
-                    raise ValueError(
-                        "Codifica CSV non riconosciuta."
-                    )
-
-                temp = io.StringIO(decoded)
-
-                imported = pd.read_csv(
-                    temp,
-                    sep=None,
-                    engine="python",
-                )
-
+            csv_df, excel_file = read_uploaded_file(uploaded)
+            if excel_file is not None:
+                sheet = st.selectbox("Foglio Excel", excel_file.sheet_names)
+                raw_df = pd.read_excel(excel_file, sheet_name=sheet)
             else:
+                raw_df = csv_df
 
-                try:
-                    imported = pd.read_excel(
-                        uploaded,
-                        header=0,
-                    )
-                except ImportError:
-                    st.error(
-                        "Per importare Excel devi aggiungere "
-                        "`openpyxl` al requirements.txt."
-                    )
-                    st.stop()
+            cert = normalize_certification(raw_df)
+            st.session_state.cert_df = cert
+            st.session_state.cert_file_name = uploaded.name
 
-            imported = normalize_columns(imported)
+            c1, c2, c3 = st.columns(3)
+            with c1: st.metric("Righe", len(cert))
+            with c2: st.metric("Ore", f"{num(cert['Ore'].sum())} h")
+            with c3: st.metric("Personale", int((cert["Risorsa"] == "Personale").sum()))
 
-            st.success(
-                f"File caricato: {len(imported)} righe."
-            )
+            st.markdown('<div class="section-title">Anteprima normalizzata</div>', unsafe_allow_html=True)
+            st.dataframe(cert.head(200), use_container_width=True, hide_index=True)
 
-            st.dataframe(
-                imported.head(100),
-                use_container_width=True,
-            )
-
-            csv_export = imported.to_csv(
-                index=False,
-                encoding="utf-8-sig",
-            )
-
-            st.download_button(
-                "Scarica CSV normalizzato",
-                data=csv_export,
-                file_name="turni_normalizzati.csv",
-                mime="text/csv",
-            )
-
+            if st.button("Usa questa certificazione nella consuntivazione", type="primary", use_container_width=True):
+                st.success("Certificazione caricata nella sessione. Vai su 'Consuntivazione'.")
         except Exception as exc:
-
-            st.error(
-                f"Errore durante l'importazione: {exc}"
-            )
-
-
-# ============================================================
-# ORE
-# ============================================================
-
-elif menu == "Ore":
-
-    st.markdown(
-        '<div class="section-title">Cruscotto ore</div>',
-        unsafe_allow_html=True,
-    )
-
-    filtered_hours = filter_authorized(hours)
-
-    if selected_commessa != "Tutte" and not filtered_hours.empty:
-        filtered_hours = filtered_hours[
-            filtered_hours["Commessa"]
-            .apply(canonical_commessa)
-            == selected_commessa
-        ]
-
-    filtered_hours = apply_period_filter(
-        filtered_hours
-    )
-
-    if filtered_hours.empty:
-
-        st.info(
-            "Non sono presenti dati sulle ore."
-        )
-
-    else:
-
-        total_hours = filtered_hours["Ore"].sum()
-        overtime = filtered_hours["Straordinario"].sum()
-
-        c1, c2, c3 = st.columns(3)
-
-        with c1:
-            st.metric(
-                "Ore totali",
-                hours_text(total_hours),
-            )
-
-        with c2:
-            st.metric(
-                "Straordinario",
-                hours_text(overtime),
-            )
-
-        with c3:
-
-            perc_extra = (
-                overtime / total_hours * 100
-                if total_hours
-                else 0
-            )
-
-            st.metric(
-                "% straordinario",
-                pct(perc_extra),
-            )
-
-        if "Operatore" in filtered_hours.columns:
-
-            by_operator = (
-                filtered_hours
-                .groupby("Operatore")["Ore"]
-                .sum()
-                .sort_values(ascending=False)
-                .head(15)
-            )
-
-            st.markdown(
-                '<div class="section-title">Ore per operatore</div>',
-                unsafe_allow_html=True,
-            )
-
-            st.bar_chart(by_operator)
-
-        st.dataframe(
-            filtered_hours,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-
-# ============================================================
-# CENTRO DI COSTO
-# ============================================================
-
-elif menu == "Centro di Costo":
-
-    st.markdown(
-        '<div class="section-title">Nuovo centro di costo</div>',
-        unsafe_allow_html=True,
-    )
-
-    if is_admin():
-
-        with st.expander(
-            "⚙️ Configurazione tariffario",
-            expanded=False,
-        ):
-
-            edited_tariffe = st.data_editor(
-                tariffe,
-                use_container_width=True,
-                hide_index=True,
-                num_rows="dynamic",
-            )
-
-            if st.button(
-                "Salva tariffario",
-                type="primary",
-            ):
-
-                edited_tariffe["Costo"] = edited_tariffe[
-                    "Costo"
-                ].apply(parse_number)
-
-                safe_to_csv(
-                    edited_tariffe,
-                    TARIFFE_FILE,
-                )
-
-                st.success(
-                    "Tariffario salvato."
-                )
-
-                st.rerun()
-
-    st.markdown(
-        '<div class="section-title">Registrazione servizio</div>',
-        unsafe_allow_html=True,
-    )
-
-    allowed_commesse = st.session_state.commesse_autorizzate
-
-    if is_admin():
-        allowed_commesse = COMMESSE_STANDARD.copy()
-
-    if not allowed_commesse:
-
-        st.error(
-            "Nessuna commessa autorizzata per questo utente."
-        )
-        st.stop()
-
-    with st.form("form_centro_costo"):
-
-        c1, c2 = st.columns(2)
-
-        with c1:
-
-            data_servizio = st.date_input(
-                "Data servizio",
-                value=datetime.today().date(),
-            )
-
-        with c2:
-
-            commessa = st.selectbox(
-                "Commessa",
-                allowed_commesse,
-            )
-
-        servizi_disponibili = SERVIZI_PER_COMMESSA.get(
-            commessa,
-            [],
-        )
-
-        servizio = st.selectbox(
-            "Servizio",
-            servizi_disponibili,
-        )
-
-        dettaglio = st.text_input(
-            "Dettaglio operativo",
-            placeholder=(
-                "Es. turno mattina, squadra 2, zona specifica..."
-            ),
-        )
-
-        st.markdown(
-            "### Risorse"
-        )
-
-        c1, c2, c3 = st.columns(3)
-
-        with c1:
-
-            livello = st.selectbox(
-                "Livello personale",
-                ["L1", "L2", "L3", "L4"],
-            )
-
-            ore_personale = st.number_input(
-                "Ore personale",
-                min_value=0.0,
-                step=0.5,
-                value=0.0,
-            )
-
-        with c2:
-
-            tipo_mezzo = st.selectbox(
-                "Tipologia mezzo",
-                [
-                    "Leggero",
-                    "Compattatore",
-                    "Pesante",
-                    "Speciale",
-                ],
-            )
-
-            ore_mezzo = st.number_input(
-                "Ore mezzo",
-                min_value=0.0,
-                step=0.5,
-                value=0.0,
-            )
-
-        with c3:
-
-            tonnellate = st.number_input(
-                "Tonnellate",
-                min_value=0.0,
-                step=0.1,
-                value=0.0,
-            )
-
-            ricavo = st.number_input(
-                "Ricavo",
-                min_value=0.0,
-                step=50.0,
-                value=0.0,
-            )
-
-        st.markdown(
-            "### Calcolo economico"
-        )
-
-        submitted = st.form_submit_button(
-            "Registra centro di costo",
-            type="primary",
-            use_container_width=True,
-        )
-
-        if submitted:
-
-            costo_personale = (
-                ore_personale
-                * tariff(
-                    tariffe,
-                    "Personale",
-                    livello,
-                    0,
-                )
-            )
-
-            costo_mezzo = (
-                ore_mezzo
-                * tariff(
-                    tariffe,
-                    "Mezzi",
-                    tipo_mezzo,
-                    0,
-                )
-            )
-
-            overhead_pct = tariff(
-                tariffe,
-                "Generale",
-                "Overhead",
-                15,
-            )
-
-            costo_diretto = (
-                costo_personale
-                + costo_mezzo
-            )
-
-            overhead = (
-                costo_diretto
-                * overhead_pct
-                / 100
-            )
-
-            costo_totale = (
-                costo_diretto
-                + overhead
-            )
-
-            # Se il ricavo non è valorizzato manualmente,
-            # utilizziamo la tariffa a tonnellata.
-            if ricavo == 0 and tonnellate > 0:
-
-                tariffa_ton = tariff(
-                    tariffe,
-                    "Generale",
-                    "Tariffa tonnellata",
-                    130,
-                )
-
-                ricavo = (
-                    tonnellate
-                    * tariffa_ton
-                )
-
-            margine = (
-                ricavo
-                - costo_totale
-            )
-
-            record_id = (
-                "CC-"
-                + datetime.now().strftime(
-                    "%Y%m%d%H%M%S%f"
-                )
-            )
-
-            record = {
-                "ID": record_id,
-                "Data": pd.Timestamp(data_servizio),
-                "Commessa": commessa,
-                "Servizio": servizio,
-                "Dettaglio": dettaglio,
-                "Tonnellate": tonnellate,
-                "Ricavo": ricavo,
-                "Costo": costo_totale,
-                "Margine": margine,
-                "Ore Personale": ore_personale,
-                "Ore Mezzi": ore_mezzo,
+            st.error(f"Errore nel caricamento: {exc}")
+
+    if not st.session_state.cert_df.empty:
+        st.markdown('<div class="section-title">Controlli qualità</div>', unsafe_allow_html=True)
+        cert = st.session_state.cert_df
+        missing_hours = int((cert["Ore"] <= 0).sum())
+        missing_resource = int((cert["Risorsa"].astype(str).str.strip() == "").sum())
+        missing_sub = int((cert["Sottoservizio"].astype(str).str.strip() == "").sum())
+        q1, q2, q3 = st.columns(3)
+        with q1:
+            st.markdown(f'<div class="info-card"><div class="info-title">Righe senza ore</div><div class="info-value">{missing_hours}</div></div>', unsafe_allow_html=True)
+        with q2:
+            st.markdown(f'<div class="info-card"><div class="info-title">Risorsa non riconosciuta</div><div class="info-value">{missing_resource}</div></div>', unsafe_allow_html=True)
+        with q3:
+            st.markdown(f'<div class="info-card"><div class="info-title">Sottoservizio mancante</div><div class="info-value">{missing_sub}</div></div>', unsafe_allow_html=True)
+
+        if st.button("Registra log importazione", use_container_width=True):
+            log = pd.DataFrame([{
+                "ID Import": "IMP-" + datetime.now().strftime("%Y%m%d%H%M%S"),
+                "Data Import": datetime.now(),
+                "File": st.session_state.cert_file_name,
+                "Righe": len(cert),
+                "Esito": "Caricato",
                 "Operatore": st.session_state.nome,
-                "Note": "",
-            }
+            }])
+            old = read_csv_flexible(FILES["certifications"])
+            save_csv(pd.concat([old, normalize_columns(log)], ignore_index=True), FILES["certifications"])
+            st.success("Importazione registrata.")
 
-            append_service(record)
+# ============================================================
+# CONSUNTIVAZIONE
+# ============================================================
 
-            st.success(
-                "Centro di costo registrato correttamente."
-            )
+elif page == "Consuntivazione":
+    st.markdown('<div class="section-title">1 · Identifica il servizio</div>', unsafe_allow_html=True)
+    services_available = list(SERVICE_TREE.keys())
+    selected_service = st.selectbox("Servizio principale", services_available)
 
-            st.markdown(
-                f"""
-                <div class="info-card">
-                    <div class="info-title">
-                        Risultato economico
-                    </div>
-                    <div class="info-value">
-                        {euro(margine)}
-                    </div>
-                    <div>
-                        Ricavi: {euro(ricavo)}
-                        · Costi: {euro(costo_totale)}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    allowed_ss = [x for x in SERVICE_TREE[selected_service] if is_admin() or x in allowed_subservices()]
+    if not allowed_ss:
+        st.error("Nessun sottoservizio autorizzato per questo servizio.")
+        st.stop()
+    selected_subservice = st.selectbox("Sottoservizio", allowed_ss)
 
-    # ========================================================
-    # STORICO
-    # ========================================================
+    st.markdown(f"""
+    <div class="hero">
+      <div class="hero-kicker">Cost center selezionato</div>
+      <div class="hero-title">{selected_service} · {selected_subservice}</div>
+      <div class="hero-copy">Ora associamo la certificazione alle risorse e calcoliamo automaticamente i costi.</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown(
-        '<div class="section-title">Storico centri di costo</div>',
-        unsafe_allow_html=True,
+    with st.expander("📥 Carica qui la certificazione ore (opzionale)", expanded=st.session_state.cert_df.empty):
+        inline_upload = st.file_uploader("Certificazione CSV/XLSX", type=["csv", "xlsx", "xls"], key="inline_cert")
+        if inline_upload is not None:
+            try:
+                csv_df, excel_file = read_uploaded_file(inline_upload)
+                if excel_file is not None:
+                    sheet_inline = st.selectbox("Foglio", excel_file.sheet_names, key="inline_sheet")
+                    raw_inline = pd.read_excel(excel_file, sheet_name=sheet_inline)
+                else:
+                    raw_inline = csv_df
+                st.session_state.cert_df = normalize_certification(raw_inline)
+                st.session_state.cert_file_name = inline_upload.name
+                st.success(f"Certificazione pronta: {len(st.session_state.cert_df)} righe.")
+            except Exception as exc:
+                st.error(f"Errore certificazione: {exc}")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        service_date = st.date_input("Data servizio", value=date.today())
+    with c2:
+        tonnage = st.number_input("Tonnellate", min_value=0.0, value=0.0, step=0.1)
+    with c3:
+        revenue = st.number_input("Ricavo / fatturato", min_value=0.0, value=0.0, step=50.0)
+
+    cert = st.session_state.cert_df.copy()
+    if not cert.empty:
+        cert = cert.copy()
+        # La certificazione può contenere più sottoservizi; filtriamo quando disponibile.
+        if cert["Sottoservizio"].astype(str).str.strip().eq("").all():
+            cert["Sottoservizio"] = selected_subservice
+        cert = cert[cert["Sottoservizio"].astype(str).str.strip().isin(["", selected_subservice])].copy()
+
+    # ---------------- PERSONALE ----------------
+    st.markdown('<div class="section-title">2 · Ore personale certificate</div>', unsafe_allow_html=True)
+    pc1, pc2 = st.columns(2)
+    with pc1:
+        default_contract = st.selectbox("Contratto predefinito", list(CONTRACTS.keys()), key="default_contract")
+    with pc2:
+        default_level = st.selectbox("Livello predefinito", CONTRACTS[default_contract], key="default_level")
+
+    if cert.empty or not (cert["Risorsa"] == "Personale").any():
+        st.warning("Nessuna riga personale disponibile. Puoi comunque inserire le righe manualmente.")
+        personnel_rows = pd.DataFrame([{
+            "Matricola": "", "Operatore": "", "Contratto": "Servizi Ambientali - Utilitalia",
+            "Livello": UTILITALIA_LEVELS[0], "Ore": 0.0,
+        }])
+    else:
+        personnel_rows = cert[cert["Risorsa"] == "Personale"][["Matricola", "Operatore", "Ore"]].copy()
+        personnel_rows["Contratto"] = ""
+        personnel_rows["Livello"] = ""
+        # join anagrafica per compilare contratto/livello
+        for idx, row in personnel_rows.iterrows():
+            m = operators[operators["Matricola"].astype(str) == str(row["Matricola"]).strip()]
+            if not m.empty:
+                personnel_rows.loc[idx, "Contratto"] = m.iloc[0]["Contratto"]
+                personnel_rows.loc[idx, "Livello"] = m.iloc[0]["Livello"]
+        personnel_rows = personnel_rows[["Matricola", "Operatore", "Contratto", "Livello", "Ore"]]
+
+    # Default contract/level per righe vuote.
+    for idx in personnel_rows.index:
+        if not str(personnel_rows.loc[idx, "Contratto"]).strip():
+            personnel_rows.loc[idx, "Contratto"] = "Servizi Ambientali - Utilitalia"
+        if not str(personnel_rows.loc[idx, "Livello"]).strip():
+            personnel_rows.loc[idx, "Livello"] = UTILITALIA_LEVELS[0]
+
+    edited_personnel = st.data_editor(
+        personnel_rows.reset_index(drop=True),
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Contratto": st.column_config.SelectboxColumn("Contratto", options=list(CONTRACTS.keys())),
+            "Livello": st.column_config.TextColumn("Livello"),
+            "Ore": st.column_config.NumberColumn("Ore", min_value=0.0, step=0.25, format="%.2f"),
+        },
+        key="personnel_editor",
     )
 
-    storico = services_auth.copy()
+    # Controllo livelli consentiti e tariffa.
+    personnel_calc = edited_personnel.copy()
+    personnel_calc["Costo Orario"] = 0.0
+    personnel_calc["Costo Totale"] = 0.0
+    warnings = []
+    for idx, row in personnel_calc.iterrows():
+        contract = str(row.get("Contratto", "")).strip()
+        level = str(row.get("Livello", "")).strip()
+        if contract not in CONTRACTS:
+            warnings.append(f"Riga {idx+1}: contratto non riconosciuto.")
+            continue
+        if level not in CONTRACTS[contract]:
+            warnings.append(f"Riga {idx+1}: livello {level} non valido per {contract}.")
+            continue
+        rate = labor_rate(tariffs, contract, level)
+        personnel_calc.loc[idx, "Costo Orario"] = rate
+        personnel_calc.loc[idx, "Costo Totale"] = parse_hours(row.get("Ore", 0)) * rate
 
-    if not storico.empty:
+    if warnings:
+        st.warning("\n".join(warnings))
 
-        storico_summary = (
-            storico
-            .groupby(
-                [
-                    "Commessa",
-                    "Servizio",
-                ]
-            )
-            .agg(
-                Ricavi=("Ricavo", "sum"),
-                Costi=("Costo", "sum"),
-                Margine=("Margine", "sum"),
-                Tonnellate=("Tonnellate", "sum"),
-                Ore=("Ore Personale", "sum"),
-            )
-            .reset_index()
-        )
+    labor_cost = float(personnel_calc["Costo Totale"].sum())
+    labor_hours = float(personnel_calc["Ore"].apply(parse_hours).sum())
 
-        storico_summary["Costo / Ton"] = np.where(
-            storico_summary["Tonnellate"] != 0,
-            storico_summary["Costi"]
-            / storico_summary["Tonnellate"],
-            0,
-        )
-
-        storico_display = storico_summary.copy()
-
-        for col in [
-            "Ricavi",
-            "Costi",
-            "Margine",
-            "Costo / Ton",
-        ]:
-            storico_display[col] = storico_display[
-                col
-            ].apply(euro)
-
-        storico_display["Tonnellate"] = (
-            storico_display["Tonnellate"]
-            .apply(lambda x: number_it(x))
-        )
-
-        storico_display["Ore"] = (
-            storico_display["Ore"]
-            .apply(lambda x: number_it(x))
-        )
-
-        st.dataframe(
-            storico_display,
-            use_container_width=True,
-            hide_index=True,
-        )
-
+    # ---------------- MEZZI ----------------
+    st.markdown('<div class="section-title">3 · Ore mezzi certificate</div>', unsafe_allow_html=True)
+    if cert.empty or not (cert["Risorsa"] == "Mezzo").any():
+        st.warning("Nessuna riga mezzi disponibile. Puoi aggiungerla manualmente.")
+        vehicle_rows = pd.DataFrame([{
+            "Targa": "", "Mezzo": "", "Tipo": DEFAULT_VEHICLE_TYPES[0], "Ore": 0.0,
+        }])
     else:
+        vehicle_rows = cert[cert["Risorsa"] == "Mezzo"][["Targa", "Mezzo", "Tipo Mezzo", "Ore"]].copy()
+        vehicle_rows = vehicle_rows.rename(columns={"Tipo Mezzo": "Tipo"})
+        vehicle_rows = vehicle_rows[["Targa", "Mezzo", "Tipo", "Ore"]]
+        for idx, row in vehicle_rows.iterrows():
+            if not str(row["Tipo"]).strip():
+                m = vehicles[vehicles["Targa"].astype(str) == str(row["Targa"]).strip()]
+                if not m.empty:
+                    vehicle_rows.loc[idx, "Tipo"] = m.iloc[0]["Tipo"]
+            if not str(vehicle_rows.loc[idx, "Tipo"]).strip():
+                vehicle_rows.loc[idx, "Tipo"] = DEFAULT_VEHICLE_TYPES[0]
 
-        st.info(
-            "Nessun centro di costo registrato."
-        )
-
-
-# ============================================================
-# MEZZI
-# ============================================================
-
-elif menu == "Mezzi":
-
-    st.markdown(
-        '<div class="section-title">Analisi mezzi</div>',
-        unsafe_allow_html=True,
+    edited_vehicles = st.data_editor(
+        vehicle_rows.reset_index(drop=True),
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Tipo": st.column_config.SelectboxColumn("Tipo mezzo", options=DEFAULT_VEHICLE_TYPES),
+            "Ore": st.column_config.NumberColumn("Ore", min_value=0.0, step=0.25, format="%.2f"),
+        },
+        key="vehicle_editor",
     )
 
-    if filtered_services.empty:
+    vehicle_calc = edited_vehicles.copy()
+    vehicle_calc["Costo Orario"] = 0.0
+    vehicle_calc["Costo Totale"] = 0.0
+    for idx, row in vehicle_calc.iterrows():
+        vtype = str(row.get("Tipo", "")).strip()
+        rate = vehicle_rate(tariffs, vtype)
+        vehicle_calc.loc[idx, "Costo Orario"] = rate
+        vehicle_calc.loc[idx, "Costo Totale"] = parse_hours(row.get("Ore", 0)) * rate
 
-        st.info(
-            "Non ci sono dati economici disponibili."
-        )
+    vehicle_cost = float(vehicle_calc["Costo Totale"].sum())
+    vehicle_hours = float(vehicle_calc["Ore"].apply(parse_hours).sum())
 
+    # ---------------- ECONOMIA ----------------
+    st.markdown('<div class="section-title">4 · Risultato economico</div>', unsafe_allow_html=True)
+    overhead = (labor_cost + vehicle_cost) * overhead_rate(tariffs) / 100
+    total_cost = labor_cost + vehicle_cost + overhead
+    margin = revenue - total_cost
+    margin_pct = (margin / revenue * 100) if revenue else 0
+
+    c1, c2, c3, c4 = st.columns(4)
+    for col, label, value in [
+        (c1, "Personale", euro(labor_cost)),
+        (c2, "Mezzi", euro(vehicle_cost)),
+        (c3, "Overhead", euro(overhead)),
+        (c4, "Margine", euro(margin)),
+    ]:
+        with col:
+            st.markdown(f'<div class="info-card"><div class="info-title">{label}</div><div class="info-value">{value}</div></div>', unsafe_allow_html=True)
+
+    if margin > 0:
+        st.markdown('<span class="badge-ok">MARGINE POSITIVO</span>', unsafe_allow_html=True)
+    elif margin < 0:
+        st.markdown('<span class="badge-danger">MARGINE NEGATIVO</span>', unsafe_allow_html=True)
     else:
+        st.markdown('<span class="badge-warn">PAREGGIO</span>', unsafe_allow_html=True)
 
-        ore_mezzi = filtered_services[
-            "Ore Mezzi"
-        ].sum()
+    notes = st.text_area("Note", placeholder="Annotazioni operative, anomalie, scostamenti...")
 
-        costo_totale = filtered_services[
-            "Costo"
-        ].sum()
+    st.markdown('<div class="section-title">5 · Salva consuntivo</div>', unsafe_allow_html=True)
+    if st.button("Salva consuntivo", type="primary", use_container_width=True):
+        if not selected_subservice:
+            st.error("Sottoservizio obbligatorio.")
+            st.stop()
 
-        tonnellate = filtered_services[
-            "Tonnellate"
-        ].sum()
+        cid = "CC-" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+        service_row = pd.DataFrame([{
+            "ID": cid,
+            "Data": pd.Timestamp(service_date),
+            "Servizio": selected_service,
+            "Sottoservizio": selected_subservice,
+            "Tonnellate": tonnage,
+            "Ricavi": revenue,
+            "Costo Personale": labor_cost,
+            "Costo Mezzi": vehicle_cost,
+            "Overhead": overhead,
+            "Costo Totale": total_cost,
+            "Margine": margin,
+            "Note": notes,
+            "Creato Da": st.session_state.nome,
+        }])
+        save_csv(pd.concat([services, service_row], ignore_index=True), FILES["services"])
 
-        c1, c2, c3 = st.columns(3)
+        pdetail = personnel_calc.copy()
+        pdetail["ID Consuntivo"] = cid
+        pdetail["Data"] = pd.Timestamp(service_date)
+        pdetail["Servizio"] = selected_service
+        pdetail["Sottoservizio"] = selected_subservice
+        pdetail = pdetail.rename(columns={"Operatore":"Operatore"})
+        pdetail = pdetail[["ID Consuntivo","Data","Servizio","Sottoservizio","Matricola","Operatore","Contratto","Livello","Ore","Costo Orario","Costo Totale"]]
+        old_p = read_personnel()
+        save_csv(pd.concat([old_p, pdetail], ignore_index=True), FILES["personnel"])
 
-        with c1:
-            st.metric(
-                "Ore mezzi",
-                hours_text(ore_mezzi),
-            )
+        vdetail = vehicle_calc.copy()
+        vdetail["ID Consuntivo"] = cid
+        vdetail["Data"] = pd.Timestamp(service_date)
+        vdetail["Servizio"] = selected_service
+        vdetail["Sottoservizio"] = selected_subservice
+        vdetail = vdetail[["ID Consuntivo","Data","Servizio","Sottoservizio","Targa","Mezzo","Tipo","Ore","Costo Orario","Costo Totale"]]
+        old_v = read_vehicle_detail()
+        save_csv(pd.concat([old_v, vdetail], ignore_index=True), FILES["vehicle_detail"])
 
-        with c2:
-            st.metric(
-                "Costo complessivo",
-                euro(costo_totale),
-            )
-
-        with c3:
-            costo_ora = (
-                costo_totale / ore_mezzi
-                if ore_mezzi
-                else 0
-            )
-
-            st.metric(
-                "Costo medio / ora",
-                euro(costo_ora),
-            )
-
-        if not vehicles.empty:
-
-            vehicles_auth = filter_authorized(
-                vehicles
-            )
-
-            st.markdown(
-                '<div class="section-title">Parco mezzi</div>',
-                unsafe_allow_html=True,
-            )
-
-            st.dataframe(
-                vehicles_auth,
-                use_container_width=True,
-                hide_index=True,
-            )
-
+        st.success(f"Consuntivo {cid} salvato.")
 
 # ============================================================
-# REPORT
+# ECONOMICO
 # ============================================================
 
-elif menu == "Report":
-
-    st.markdown(
-        '<div class="section-title">Esportazione dati</div>',
-        unsafe_allow_html=True,
-    )
-
-    report = filtered_services.copy()
-
-    if report.empty:
-
-        st.info(
-            "Nessun dato disponibile per il report."
-        )
-
+elif page == "Economico":
+    df = authorized_services(services)
+    st.markdown('<div class="section-title">Analisi per servizio e sottoservizio</div>', unsafe_allow_html=True)
+    if df.empty:
+        st.info("Non ci sono consuntivi disponibili.")
     else:
-
-        st.write(
-            f"Record disponibili: **{len(report)}**"
-        )
-
-        display = report.copy()
-
-        display["Data"] = pd.to_datetime(
-            display["Data"],
-            errors="coerce",
-        ).dt.strftime("%d/%m/%Y")
-
-        csv_data = display.to_csv(
-            index=False,
-            encoding="utf-8-sig",
-        )
-
-        st.download_button(
-            "⬇️ Scarica report CSV",
-            data=csv_data,
-            file_name=(
-                "report_centro_costo_"
-                + datetime.now().strftime("%Y%m%d")
-                + ".csv"
-            ),
-            mime="text/csv",
-            use_container_width=True,
-        )
-
-        st.dataframe(
-            display,
-            use_container_width=True,
-            hide_index=True,
-        )
-
+        summary = df.groupby(["Servizio", "Sottoservizio"]).agg(
+            Ricavi=("Ricavi", "sum"),
+            Costi=("Costo Totale", "sum"),
+            Margine=("Margine", "sum"),
+            Tonnellate=("Tonnellate", "sum"),
+        ).reset_index()
+        summary["Margine %"] = np.where(summary["Ricavi"] != 0, summary["Margine"] / summary["Ricavi"] * 100, 0)
+        st.dataframe(summary, use_container_width=True, hide_index=True)
+        st.markdown('<div class="section-title">Costo del personale</div>', unsafe_allow_html=True)
+        p = authorized_services(personnel_detail, "Sottoservizio")
+        if not p.empty:
+            by_contract = p.groupby(["Contratto", "Livello"])["Costo Totale"].sum().sort_values(ascending=False)
+            st.bar_chart(by_contract)
+        st.markdown('<div class="section-title">Costo mezzi</div>', unsafe_allow_html=True)
+        v = authorized_services(vehicle_detail, "Sottoservizio")
+        if not v.empty:
+            by_vehicle = v.groupby("Tipo")["Costo Totale"].sum().sort_values(ascending=False)
+            st.bar_chart(by_vehicle)
 
 # ============================================================
 # ANAGRAFICHE
 # ============================================================
 
-elif menu == "Anagrafiche":
-
+elif page == "Anagrafiche":
     if not is_admin():
-
-        st.error(
-            "Sezione riservata alla Direzione."
-        )
+        st.error("Sezione riservata alla Direzione.")
         st.stop()
-
-    tab1, tab2 = st.tabs(
-        [
-            "👷 Operatori",
-            "🚛 Mezzi",
-        ]
-    )
-
+    tab1, tab2 = st.tabs(["Operatori", "Mezzi"])
     with tab1:
-
-        st.markdown(
-            '<div class="section-title">Anagrafica operatori</div>',
-            unsafe_allow_html=True,
-        )
-
-        edited_operators = st.data_editor(
-            operators,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
-        )
-
-        if st.button(
-            "Salva operatori",
-            key="save_operators",
-            type="primary",
-        ):
-
-            safe_to_csv(
-                edited_operators,
-                OPERATORI_FILE,
-            )
-
-            st.success(
-                "Anagrafica operatori salvata."
-            )
-
+        st.markdown('<div class="section-title">Operatori</div>', unsafe_allow_html=True)
+        edited = st.data_editor(operators, num_rows="dynamic", use_container_width=True, hide_index=True)
+        st.info("Per ogni operatore imposta Contratto e Livello. Il costo orario verrà poi letto dal tariffario.")
+        if st.button("Salva operatori", type="primary"):
+            save_csv(edited, FILES["operators"])
+            st.success("Operatori salvati.")
             st.rerun()
-
     with tab2:
-
-        st.markdown(
-            '<div class="section-title">Anagrafica mezzi</div>',
-            unsafe_allow_html=True,
-        )
-
-        edited_vehicles = st.data_editor(
-            vehicles,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
-        )
-
-        if st.button(
-            "Salva mezzi",
-            key="save_vehicles",
-            type="primary",
-        ):
-
-            safe_to_csv(
-                edited_vehicles,
-                MEZZI_FILE,
-            )
-
-            st.success(
-                "Anagrafica mezzi salvata."
-            )
-
+        st.markdown('<div class="section-title">Mezzi</div>', unsafe_allow_html=True)
+        edited = st.data_editor(vehicles, num_rows="dynamic", use_container_width=True, hide_index=True)
+        if st.button("Salva mezzi", type="primary"):
+            save_csv(edited, FILES["vehicles"])
+            st.success("Mezzi salvati.")
             st.rerun()
 
-
 # ============================================================
-# GESTIONE ACCESSI
+# TARIFFARI & CONTRATTI
 # ============================================================
 
-elif menu == "Gestione Accessi":
-
+elif page == "Tariffari & Contratti":
     if not is_admin():
-
-        st.error(
-            "Sezione riservata alla Direzione."
-        )
+        st.error("Sezione riservata alla Direzione.")
         st.stop()
 
-    st.markdown(
-        '<div class="section-title">Utenti autorizzati</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("""<div class=\"hero\"><div class=\"hero-kicker\">Regola contabile</div><div class=\"hero-title\">Livello contrattuale ≠ costo aziendale</div><div class=\"hero-copy\">Il contratto determina l'inquadramento. Il costo orario usato dal centro di costo viene impostato dall'azienda.</div></div>""", unsafe_allow_html=True)
 
-    st.info(
-        "Nel campo Commesse puoi indicare più commesse "
-        "separate da virgola."
-    )
+    tab1, tab2, tab3 = st.tabs(["Personale", "Mezzi", "Struttura"])
+    with tab1:
+        ptab = tariffs[tariffs["Tipo"].astype(str).str.lower() == "personale"].copy()
+        edit_p = st.data_editor(ptab, num_rows="dynamic", use_container_width=True, hide_index=True, key="tariff_personale")
+        if st.button("Salva costi personale", type="primary"):
+            other = tariffs[tariffs["Tipo"].astype(str).str.lower() != "personale"]
+            save_csv(pd.concat([other, edit_p], ignore_index=True), FILES["tariffs"])
+            st.success("Tariffe personale salvate.")
+            st.rerun()
+    with tab2:
+        vtab = tariffs[tariffs["Tipo"].astype(str).str.lower() == "mezzo"].copy()
+        edit_v = st.data_editor(vtab, num_rows="dynamic", use_container_width=True, hide_index=True, key="tariff_mezzi")
+        if st.button("Salva costi mezzi", type="primary"):
+            other = tariffs[tariffs["Tipo"].astype(str).str.lower() != "mezzo"]
+            save_csv(pd.concat([other, edit_v], ignore_index=True), FILES["tariffs"])
+            st.success("Tariffe mezzi salvate.")
+            st.rerun()
+    with tab3:
+        gtab = tariffs[tariffs["Tipo"].astype(str).str.lower() == "generale"].copy()
+        edit_g = st.data_editor(gtab, num_rows="dynamic", use_container_width=True, hide_index=True, key="tariff_generale")
+        if st.button("Salva struttura costi", type="primary"):
+            other = tariffs[tariffs["Tipo"].astype(str).str.lower() != "generale"]
+            save_csv(pd.concat([other, edit_g], ignore_index=True), FILES["tariffs"])
+            st.success("Struttura costi salvata.")
+            st.rerun()
 
-    edited_users = st.data_editor(
-        users,
-        use_container_width=True,
-        hide_index=True,
-        num_rows="dynamic",
-    )
+    st.markdown('<div class="section-title">Livelli disponibili</div>', unsafe_allow_html=True)
+    st.write("**Servizi Ambientali - Utilitalia:** " + ", ".join(UTILITALIA_LEVELS))
+    st.write("**Cooperative Sociali:** " + ", ".join(COOPERATIVE_SOCIALI_LEVELS))
 
-    if st.button(
-        "Salva utenti",
-        type="primary",
-    ):
+# ============================================================
+# ACCESSI
+# ============================================================
 
-        required = [
-            "username",
-            "password",
-            "nome",
-            "ruolo",
-            "cantieri",
-        ]
-
-        edited_users = ensure_columns(
-            edited_users,
-            required,
-        )
-
-        safe_to_csv(
-            edited_users[required],
-            UTENTI_FILE,
-        )
-
-        st.success(
-            "Gestione accessi aggiornata."
-        )
-
+elif page == "Accessi":
+    if not is_admin():
+        st.error("Sezione riservata alla Direzione.")
+        st.stop()
+    st.markdown('<div class="section-title">Utenti e autorizzazioni</div>', unsafe_allow_html=True)
+    edit_users = st.data_editor(users, num_rows="dynamic", use_container_width=True, hide_index=True)
+    st.caption("Le autorizzazioni sono i sottoservizi operativi: separali con virgola. Usa TUTTI per la Direzione.")
+    if st.button("Salva accessi", type="primary"):
+        save_csv(edit_users, FILES["users"])
+        st.success("Accessi salvati.")
         st.rerun()
-
-    st.markdown(
-        '<div class="section-title">Commesse disponibili</div>',
-        unsafe_allow_html=True,
-    )
-
-    commesse_table = []
-
-    for commessa in COMMESSE_STANDARD:
-
-        commesse_table.append(
-            {
-                "Commessa": commessa,
-                "Servizi disponibili": ", ".join(
-                    SERVIZI_PER_COMMESSA.get(
-                        commessa,
-                        [],
-                    )
-                ),
-            }
-        )
-
-    st.dataframe(
-        pd.DataFrame(commesse_table),
-        use_container_width=True,
-        hide_index=True,
-    )
-
 
 # ============================================================
 # FOOTER
 # ============================================================
 
-st.markdown(
-    """
-    <div style="
-        text-align:center;
-        color:#8a9290;
-        font-size:11px;
-        padding:35px 0 10px 0;
-    ">
-        Cristoforo · Control Room · Centro di Costo
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<div style="text-align:center;color:#8a938d;font-size:11px;padding:35px 0 5px;">
+Cristoforo · Control Room V3 · Servizi · Sottoservizi · Certificazione Ore · Centro di Costo
+</div>
+""", unsafe_allow_html=True)
