@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8
-# Completo al 100%: Import Ingombranti intelligente, Tariffe Ricavo
-# e risoluzione dinamica delle colonne (Provincia, Comune, Kg, ecc.)
+# CRISTOFORO | CONTROL ROOM V8.3
+# Aggiunta colonne "Costo h Mezzo" e "Costo h Personale" nell'anteprima.
+# Mapping diretto delle nomenclature (es. "35 qt") per un match perfetto.
 # ============================================================
 import hashlib
 import hmac
@@ -28,6 +28,15 @@ st.set_page_config(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# --- FORZATURA TEMA CHIARO (Anti-Testo Bianco) ---
+st_dir = os.path.join(BASE_DIR, ".streamlit")
+os.makedirs(st_dir, exist_ok=True)
+config_path = os.path.join(st_dir, "config.toml")
+if not os.path.exists(config_path):
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.write("[theme]\nbase='light'\nprimaryColor='#123B33'\nbackgroundColor='#F2F5F2'\nsecondaryBackgroundColor='#FFFFFF'\ntextColor='#14211D'\n")
+# -------------------------------------------------
+
 FILES = {
     "users": os.path.join(BASE_DIR, "utenti_cristoforo.csv"),
     "operators": os.path.join(BASE_DIR, "anagrafica_operatori.csv"),
@@ -50,7 +59,14 @@ SERVICE_TREE = {
 }
 ALL_SUBSERVICES = sorted({x for values in SERVICE_TREE.values() for x in values})
 
-DEFAULT_VEHICLE_TYPES = ["Leggero", "Furgone", "Compattatore", "Spazzatrice", "Scarrabile", "Pesante", "Speciale", "35 qt", "Vasca"]
+# Nomi esatti che coprono sia le gare che i file Excel operativi reali
+DEFAULT_VEHICLE_TYPES = [
+    "35 qt", "Vasca", "3 Assi", "4 Assi", "Scarrabile", "Leggero", "Furgone", "Compattatore", "Spazzatrice",
+    "1. Porter", "2. Porter Costipatore", "3. 35qt Vasca", "4. 35qt Vasca Costipatore",
+    "5. 75qt Vasca Costipatore", "6. Monoscocca 10/12Qt", "7. 2 Assi 12/18mc",
+    "8. 3 Assi 21/27mc", "9. 4 Assi 28/32mc", "10. Semi-Rimorchio 42/48mc",
+    "11. 3 Assi Scarrabile", "12. 4 Assi Scarrabile", "13. 3 Assi Scarrabile con Caricatore"
+]
 
 CONTRACTS = {
     "Servizi Ambientali - Utilitalia": [
@@ -61,8 +77,24 @@ CONTRACTS = {
 ALL_LEVELS = sorted({lv for levels in CONTRACTS.values() for lv in levels})
 
 DEFAULT_VEHICLE_COSTS = {
-    "Leggero": 15.0, "Furgone": 18.0, "35 qt": 22.0, "Vasca": 24.0, "Compattatore": 25.0, "Spazzatrice": 35.0,
-    "Scarrabile": 40.0, "Pesante": 45.0, "Speciale": 65.0,
+    "35 qt": 20.0,
+    "Vasca": 22.0,
+    "3 Assi": 45.0,
+    "4 Assi": 50.0,
+    "Scarrabile": 40.0,
+    "1. Porter": 15.0,
+    "2. Porter Costipatore": 16.5,
+    "3. 35qt Vasca": 20.0,
+    "4. 35qt Vasca Costipatore": 22.0,
+    "5. 75qt Vasca Costipatore": 28.0,
+    "6. Monoscocca 10/12Qt": 35.0,
+    "7. 2 Assi 12/18mc": 40.0,
+    "8. 3 Assi 21/27mc": 45.0,
+    "9. 4 Assi 28/32mc": 50.0,
+    "10. Semi-Rimorchio 42/48mc": 65.0,
+    "11. 3 Assi Scarrabile": 42.0,
+    "12. 4 Assi Scarrabile": 48.0,
+    "13. 3 Assi Scarrabile con Caricatore": 55.0
 }
 
 DEFAULT_PASSWORDS = {"direzione": "admin", "resp_prato": "123", "resp_mantova": "456"}
@@ -92,6 +124,21 @@ html, body, [class*="css"], .stApp { font-family: var(--body); font-variant-nume
 [data-testid="stHeader"] { background: transparent; }
 .block-container { max-width: 1480px; padding-top: 1.4rem; padding-bottom: 4rem; }
 footer { visibility: hidden; }
+
+/* FIX COLORI TESTO */
+[data-testid="stAppViewContainer"] { background: var(--paper); color: var(--ink); }
+.stMarkdown p, .stMarkdown li, [data-testid="stMarkdownContainer"] p { color: var(--ink) !important; }
+[data-testid="stMetricLabel"] p { color: var(--mute) !important; }
+[data-testid="stMetricValue"] { color: var(--ink) !important; }
+[data-testid="stCheckbox"] p, [data-testid="stRadio"] p { color: var(--ink) !important; }
+div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !important; border-color: var(--line) !important; border-radius: 10px !important; }
+div[data-baseweb="select"] *, div[data-baseweb="input"] *, input, textarea { color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important; }
+div[data-baseweb="popover"] { background-color: var(--card) !important; }
+div[data-baseweb="popover"] * { color: var(--ink) !important; }
+[data-testid="stTabs"] button p { font-size: 14px; font-weight: 600; color: var(--mute) !important; }
+[data-testid="stTabs"] button[aria-selected="true"] p { color: var(--pine) !important; }
+[data-testid="stTabs"] button[aria-selected="true"] { border-bottom-color: var(--pine) !important; }
+[data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
 section[data-testid="stSidebar"] { background: linear-gradient(180deg, #0F332C 0%, #123B33 55%, #16483D 100%) !important; border-right: 0 !important; }
 section[data-testid="stSidebar"] * { color: #E6EFEA !important; }
 section[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.12) !important; }
@@ -173,9 +220,6 @@ section[data-testid="stSidebar"] div.stButton > button { background: rgba(255,25
 div.stButton > button, div.stDownloadButton > button { min-height: 42px; border-radius: 10px; font-weight: 600; }
 div.stButton > button[kind="primary"] { background: var(--pine) !important; color:#FFFFFF !important; border-color: var(--pine) !important; }
 div.stButton > button:not([kind="primary"]), div.stDownloadButton > button { background:#FFFFFF !important; color: var(--ink) !important; border-color: var(--line) !important; }
-[data-testid="stMetric"] { background:#FFFFFF; border:1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
-[data-testid="stMetricValue"] { font-family: var(--display); color: var(--ink); }
-[data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
 .foot { text-align:center; color: var(--mute); font-size: 12px; padding: 34px 0 4px; }
 </style>
 """,
@@ -919,28 +963,27 @@ if page == "Dashboard":
         sx(st.dataframe, table, hide_index=True, column_config={"Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"), "Ricavi": st.column_config.NumberColumn(format="€ %.2f"), "Costi": st.column_config.NumberColumn(format="€ %.2f"), "Margine": st.column_config.NumberColumn(format="€ %.2f"), "Margine %": st.column_config.NumberColumn(format="%.1f%%")})
 
 # ============================================================
-# MODULO INGOMBRANTI
+# MODULO INGOMBRANTI (CON COLONNE TARIFFE ESPLICITE)
 # ============================================================
 elif page == "Ingombranti":
     st.info("Carica il file Excel mensile della Raccolta Ingombranti. Il sistema individuerà in automatico Provincia, Comune e Kg a prescindere dal loro ordine nel file.")
     col_a, col_b = st.columns([1, 1])
     
-    file_ing = col_a.file_uploader("Carica file Ingombranti (es. ingombranti agosto 2026_2.xlsx)", type=["xlsx", "xls"])
+    file_ing = col_a.file_uploader("Carica file Ingombranti", type=["xlsx", "xls"])
     selected_ccnl = col_b.selectbox("Scegli il CCNL di Riferimento per questo file", options=list(CONTRACTS.keys()), help="Indica a quale listino appartengono i livelli scritti nel file (es. D1, B2).")
 
     if file_ing:
         try:
-            # Leggiamo saltando le prime 3 righe come fatto sul file originale
             df_ing = pd.read_excel(file_ing, header=3)
             
-            # 1. Puliamo i nomi delle colonne per fare un "match" sicuro (indipendente da a capi o spazi)
+            # Pulizia e mapping colonne
             cols_lower = {c: str(c).lower().replace('\n', ' ').strip() for c in df_ing.columns}
             rename_map = {}
             for orig, lower in cols_lower.items():
                 if lower == 'data': rename_map[orig] = 'Data'
                 elif 'comune' in lower: rename_map[orig] = 'Comune'
                 elif 'provincia' in lower: rename_map[orig] = 'Provincia'
-                elif lower == 'autista' or 'autista' in lower and 'nr' not in lower: rename_map[orig] = 'Livello_Autista'
+                elif lower == 'autista' or ('autista' in lower and 'nr' not in lower): rename_map[orig] = 'Livello_Autista'
                 elif 'supporto' in lower: rename_map[orig] = 'Livello_Supporto'
                 elif 'tipologia mezzo' in lower: rename_map[orig] = 'Mezzo'
                 elif 'h/turno' in lower: rename_map[orig] = 'Ore'
@@ -949,12 +992,10 @@ elif page == "Ingombranti":
 
             df_ing.rename(columns=rename_map, inplace=True)
             
-            # Controlliamo che il file abbia le colonne minime vitali
             if 'Data' not in df_ing.columns or 'Comune' not in df_ing.columns:
                 st.error("Errore: Impossibile trovare le colonne 'Data' e 'Comune' nel file. Controlla il formato.")
                 st.stop()
                 
-            # Filtriamo le righe valide
             df_ing = df_ing.dropna(subset=['Data', 'Comune'])
             
             if df_ing.empty:
@@ -967,54 +1008,52 @@ elif page == "Ingombranti":
 
                 for _, row in df_ing.iterrows():
                     comune = str(row.get('Comune', '')).strip()
-                    provincia = str(row.get('Provincia', '')).strip() # Estraiamo anche la Provincia!
+                    provincia = str(row.get('Provincia', '')).strip() 
                     data = pd.to_datetime(row.get('Data'), errors='coerce')
                     
-                    # Tonnellate
                     kg = parse_num(row.get('Kg', 0))
                     ton = kg / 1000.0
                     
-                    # Ricavo a Tonnellata per questo Comune
                     ricavo_ton = rate_lookup(tariffs, "Ricavo Tonnellata", comune, "Ingombranti")
                     if ricavo_ton is None: ricavo_ton = 0.0
                     ricavo_totale = ton * ricavo_ton
                     
-                    # Ore
                     ore_str = row.get('Ore', 0)
                     ore_dec = parse_hours(ore_str)
                     
-                    # Dati Personale e Mezzo
                     liv_aut = str(row.get('Livello_Autista', '')).strip()
                     liv_sup = str(row.get('Livello_Supporto', '')).strip()
                     tipo_mezzo = str(row.get('Mezzo', '')).strip()
                     
-                    # Calcolo Costi dal Tariffario
+                    # Estrazione Tariffe Esatte
                     costo_h_aut = labor_rate(tariffs, selected_ccnl, liv_aut)
-                    costo_h_sup = labor_rate(tariffs, selected_ccnl, liv_sup) if liv_sup else 0.0
+                    costo_h_sup = labor_rate(tariffs, selected_ccnl, liv_sup) if liv_sup and liv_sup.lower() != 'nan' else 0.0
                     costo_h_mezzo = vehicle_rate(tariffs, tipo_mezzo)
                     
-                    costo_personale = (costo_h_aut + costo_h_sup) * ore_dec
+                    # Totali Costo Orario per verifica visiva
+                    costo_h_pers_totale = costo_h_aut + costo_h_sup
+                    
+                    costo_personale = costo_h_pers_totale * ore_dec
                     costo_mezzo = costo_h_mezzo * ore_dec
                     overhead = (costo_personale + costo_mezzo) * overhead_pct / 100.0
                     costo_totale = costo_personale + costo_mezzo + overhead
                     
                     margine = ricavo_totale - costo_totale
                     
-                    # Anomalie (manca tariffa per comune o costo per livello/mezzo)
                     anomalia = 0
-                    if ricavo_ton == 0.0 or costo_h_aut == 0.0 or (liv_sup and costo_h_sup == 0.0) or costo_h_mezzo == 0.0:
+                    if ricavo_ton == 0.0 or costo_h_aut == 0.0 or (liv_sup and liv_sup.lower() != 'nan' and costo_h_sup == 0.0) or costo_h_mezzo == 0.0:
                         anomalia = 1
 
-                    # Salviamo la provincia all'interno delle Note per poterla ricercare in futuro
                     nota_servizio = f"Provincia: {provincia}" if provincia and provincia != 'nan' else ""
 
                     risultati.append({
                         "Data": data.date() if pd.notnull(data) else None,
-                        "Servizio": "Ingombranti",
-                        "Comune": comune,
                         "Provincia": provincia,
+                        "Comune": comune,
                         "Mezzo": tipo_mezzo,
+                        "Costo h Mezzo": costo_h_mezzo,  # Colonna aggiunta per debug visivo
                         "Addetti": f"{liv_aut} + {liv_sup}" if liv_sup and liv_sup != 'nan' else liv_aut,
+                        "Costo h Pers.": costo_h_pers_totale, # Colonna aggiunta per debug visivo
                         "Ore": ore_dec,
                         "Ton": ton,
                         "Ricavo Tonnellata": ricavo_ton,
@@ -1027,19 +1066,22 @@ elif page == "Ingombranti":
                         "raw_costo_mezzo": costo_mezzo,
                         "raw_overhead": overhead,
                         "raw_costo_tot": costo_totale,
+                        "Servizio": "Ingombranti",
                     })
 
                 df_res = pd.DataFrame(risultati)
                 
-                # Visualizzazione dell'Anteprima
                 st.subheader("Anteprima Elaborazione Automatica")
                 view_df = df_res.copy()
-                view_df.drop(columns=['raw_costo_pers', 'raw_costo_mezzo', 'raw_overhead', 'raw_costo_tot', 'Servizio'], inplace=True)
+                view_df.drop(columns=['raw_costo_pers', 'raw_costo_mezzo', 'raw_overhead', 'raw_costo_tot', 'Servizio', 'Note', 'Anomalie'], inplace=True)
                 
+                # Configurazione visiva avanzata della tabella
                 sx(st.dataframe, view_df, hide_index=True, column_config={
                     "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                     "Ore": st.column_config.NumberColumn(format="%.2f"),
                     "Ton": st.column_config.NumberColumn(format="%.2f"),
+                    "Costo h Mezzo": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Costo h Pers.": st.column_config.NumberColumn(format="€ %.2f"),
                     "Ricavo Tonnellata": st.column_config.NumberColumn(format="€ %.2f"),
                     "Ricavi Totali": st.column_config.NumberColumn(format="€ %.2f"),
                     "Costi Diretti": st.column_config.NumberColumn(format="€ %.2f"),
@@ -1048,7 +1090,7 @@ elif page == "Ingombranti":
                 
                 anomalie_tot = df_res['Anomalie'].sum()
                 if anomalie_tot > 0:
-                    st.warning(f"ATTENZIONE: {anomalie_tot} righe presentano tariffe mancanti (Ricavo a tonnellata per quel Comune o Costo Orario per quei Livelli/Mezzi). Vai nel menu 'Tariffe e contratti' per configurarle prima di salvare.")
+                    st.warning(f"ATTENZIONE: {anomalie_tot} righe presentano tariffe a zero (Ricavo a tonnellata o Costi Orari). Per risolvere, copia il nome esatto del mezzo o dell'addetto e inseriscigli un costo nella scheda 'Tariffe e contratti'.")
                 
                 if sx(st.button, "Salva tutti come Centri di Costo", type="primary"):
                     rows_to_save = []
@@ -1063,7 +1105,7 @@ elif page == "Ingombranti":
                             "Costo Personale": r["raw_costo_pers"], "Costo Mezzi": r["raw_costo_mezzo"], 
                             "Overhead": r["raw_overhead"], "Costo Totale": r["raw_costo_tot"], 
                             "Margine": r["Margine"], "Ore Uomo": r["Ore"] * (2 if "+" in r["Addetti"] else 1), 
-                            "Ore Mezzi": r["Ore"], "Note": r["Note"],
+                            "Ore Mezzi": r["Ore"], "Note": r["Note"] + f" | Mezzo: {r['Mezzo']}",
                             "Creato Da": st.session_state.nome, "Periodo Da": r["Data"], "Periodo A": r["Data"], 
                             "Anomalie": r["Anomalie"]
                         })
@@ -1323,4 +1365,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8</div>')
+html('<div class="foot">Cristoforo Control Room V8.3</div>')
