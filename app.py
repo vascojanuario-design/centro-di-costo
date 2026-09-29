@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.3
-# Aggiunta colonne "Costo h Mezzo" e "Costo h Personale" nell'anteprima.
-# Mapping diretto delle nomenclature (es. "35 qt") per un match perfetto.
+# CRISTOFORO | CONTROL ROOM V8.4
+# Fix crash avvio (rimossa generazione config) e Modulo Ingombranti definitivo
 # ============================================================
 import hashlib
 import hmac
@@ -28,15 +27,6 @@ st.set_page_config(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# --- FORZATURA TEMA CHIARO (Anti-Testo Bianco) ---
-st_dir = os.path.join(BASE_DIR, ".streamlit")
-os.makedirs(st_dir, exist_ok=True)
-config_path = os.path.join(st_dir, "config.toml")
-if not os.path.exists(config_path):
-    with open(config_path, "w", encoding="utf-8") as f:
-        f.write("[theme]\nbase='light'\nprimaryColor='#123B33'\nbackgroundColor='#F2F5F2'\nsecondaryBackgroundColor='#FFFFFF'\ntextColor='#14211D'\n")
-# -------------------------------------------------
-
 FILES = {
     "users": os.path.join(BASE_DIR, "utenti_cristoforo.csv"),
     "operators": os.path.join(BASE_DIR, "anagrafica_operatori.csv"),
@@ -59,7 +49,6 @@ SERVICE_TREE = {
 }
 ALL_SUBSERVICES = sorted({x for values in SERVICE_TREE.values() for x in values})
 
-# Nomi esatti che coprono sia le gare che i file Excel operativi reali
 DEFAULT_VEHICLE_TYPES = [
     "35 qt", "Vasca", "3 Assi", "4 Assi", "Scarrabile", "Leggero", "Furgone", "Compattatore", "Spazzatrice",
     "1. Porter", "2. Porter Costipatore", "3. 35qt Vasca", "4. 35qt Vasca Costipatore",
@@ -77,23 +66,12 @@ CONTRACTS = {
 ALL_LEVELS = sorted({lv for levels in CONTRACTS.values() for lv in levels})
 
 DEFAULT_VEHICLE_COSTS = {
-    "35 qt": 20.0,
-    "Vasca": 22.0,
-    "3 Assi": 45.0,
-    "4 Assi": 50.0,
-    "Scarrabile": 40.0,
-    "1. Porter": 15.0,
-    "2. Porter Costipatore": 16.5,
-    "3. 35qt Vasca": 20.0,
-    "4. 35qt Vasca Costipatore": 22.0,
-    "5. 75qt Vasca Costipatore": 28.0,
-    "6. Monoscocca 10/12Qt": 35.0,
-    "7. 2 Assi 12/18mc": 40.0,
-    "8. 3 Assi 21/27mc": 45.0,
-    "9. 4 Assi 28/32mc": 50.0,
-    "10. Semi-Rimorchio 42/48mc": 65.0,
-    "11. 3 Assi Scarrabile": 42.0,
-    "12. 4 Assi Scarrabile": 48.0,
+    "35 qt": 20.0, "Vasca": 22.0, "3 Assi": 45.0, "4 Assi": 50.0, "Scarrabile": 40.0,
+    "1. Porter": 15.0, "2. Porter Costipatore": 16.5, "3. 35qt Vasca": 20.0,
+    "4. 35qt Vasca Costipatore": 22.0, "5. 75qt Vasca Costipatore": 28.0,
+    "6. Monoscocca 10/12Qt": 35.0, "7. 2 Assi 12/18mc": 40.0, "8. 3 Assi 21/27mc": 45.0,
+    "9. 4 Assi 28/32mc": 50.0, "10. Semi-Rimorchio 42/48mc": 65.0,
+    "11. 3 Assi Scarrabile": 42.0, "12. 4 Assi Scarrabile": 48.0,
     "13. 3 Assi Scarrabile con Caricatore": 55.0
 }
 
@@ -120,25 +98,24 @@ st.markdown(
     --body:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;
 }
 html, body, [class*="css"], .stApp { font-family: var(--body); font-variant-numeric: tabular-nums; }
-.stApp { background: var(--paper); color: var(--ink); }
 [data-testid="stHeader"] { background: transparent; }
 .block-container { max-width: 1480px; padding-top: 1.4rem; padding-bottom: 4rem; }
 footer { visibility: hidden; }
 
-/* FIX COLORI TESTO */
-[data-testid="stAppViewContainer"] { background: var(--paper); color: var(--ink); }
+/* FIX COLORI TESTO GENERALI */
 .stMarkdown p, .stMarkdown li, [data-testid="stMarkdownContainer"] p { color: var(--ink) !important; }
 [data-testid="stMetricLabel"] p { color: var(--mute) !important; }
 [data-testid="stMetricValue"] { color: var(--ink) !important; }
 [data-testid="stCheckbox"] p, [data-testid="stRadio"] p { color: var(--ink) !important; }
-div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !important; border-color: var(--line) !important; border-radius: 10px !important; }
-div[data-baseweb="select"] *, div[data-baseweb="input"] *, input, textarea { color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important; }
-div[data-baseweb="popover"] { background-color: var(--card) !important; }
-div[data-baseweb="popover"] * { color: var(--ink) !important; }
+div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="textarea"] { border-radius: 10px !important; }
+
+/* DATAFRAME E TABS */
 [data-testid="stTabs"] button p { font-size: 14px; font-weight: 600; color: var(--mute) !important; }
 [data-testid="stTabs"] button[aria-selected="true"] p { color: var(--pine) !important; }
 [data-testid="stTabs"] button[aria-selected="true"] { border-bottom-color: var(--pine) !important; }
 [data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
+
+/* SIDEBAR E STRUTTURA LOGO */
 section[data-testid="stSidebar"] { background: linear-gradient(180deg, #0F332C 0%, #123B33 55%, #16483D 100%) !important; border-right: 0 !important; }
 section[data-testid="stSidebar"] * { color: #E6EFEA !important; }
 section[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.12) !important; }
@@ -162,7 +139,7 @@ section[data-testid="stSidebar"] div.stButton > button { background: rgba(255,25
 .page-head { display:flex; justify-content:space-between; align-items:flex-end; margin: 2px 0 18px; gap: 16px; }
 .page-title { font-family: var(--display); font-weight: 800; font-size: 34px; letter-spacing: -1px; color: var(--ink); line-height: 1.05; }
 .page-sub { color: var(--mute); font-size: 14px; margin-top: 5px; }
-.who { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 500; color: var(--ink2); white-space: nowrap; }
+.who { border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 500; white-space: nowrap; }
 .who i { display:inline-block; width:8px; height:8px; border-radius:50%; background: var(--moss); margin-right:8px; }
 .section-title { font-family: var(--display); font-weight: 700; font-size: 19px; color: var(--ink); margin: 26px 0 10px; letter-spacing: -.3px; }
 .section-note { color: var(--mute); font-size: 13px; margin: -6px 0 10px; }
@@ -183,7 +160,7 @@ section[data-testid="stSidebar"] div.stButton > button { background: rgba(255,25
 .stat-note { font-size: 12px; color: var(--mute); margin-top: 3px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .stat-spark { position:absolute; right:0; top:14px; width:96px; height:34px; opacity:.95; }
 .stat-spark svg { width:100%; height:100%; display:block; }
-.strip { display:grid; grid-template-columns: repeat(4, 1fr); gap: 0; background: var(--card); border:1px solid var(--line); border-radius: 14px; margin-top: 18px; }
+.strip { display:grid; grid-template-columns: repeat(4, 1fr); gap: 0; border:1px solid var(--line); border-radius: 14px; margin-top: 18px; }
 .strip .cell { padding: 15px 20px; border-right: 1px solid var(--line); }
 .strip .cell:last-child { border-right: 0; }
 .cell-label { font-size: 13px; color: var(--mute); }
@@ -202,24 +179,24 @@ section[data-testid="stSidebar"] div.stButton > button { background: rgba(255,25
 .pill.ok { background: var(--moss-soft); color: #1E5C41 !important; }
 .pill.warn { background: var(--signal-soft); color: #7A5200 !important; }
 .pill.bad { background: var(--alert-soft); color: #9B2A1D !important; }
-.panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
+.panel { border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
 .panel-head { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--ink); }
 .panel-sub { font-size: 13px; color: var(--mute); margin-top: 3px; }
 .chart-head { margin: 0 2px 6px; }
 .svc { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .svc:last-child { border-bottom: 0; }
 .svc-name { font-weight: 600; font-size: 14px; color: var(--ink); margin-bottom: 2px; }
-.check { display:flex; gap: 14px; align-items:flex-start; padding: 13px 16px; background: var(--card); border:1px solid var(--line); border-left-width: 4px; border-radius: 10px; margin-bottom: 8px; }
+.check { display:flex; gap: 14px; align-items:flex-start; padding: 13px 16px; border:1px solid var(--line); border-left-width: 4px; border-radius: 10px; margin-bottom: 8px; }
 .check.ok { border-left-color: var(--moss); } .check.warn { border-left-color: var(--signal); } .check.bad { border-left-color: var(--alert); }
 .check-title { font-weight: 600; font-size: 14px; color: var(--ink); }
 .check-msg { font-size: 13px; color: var(--mute); margin-top: 2px; }
 .check-n { margin-left:auto; font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--ink); }
 .login { max-width: 460px; margin: 9vh auto 18px; background: linear-gradient(150deg, #1B5245 0%, var(--pine) 70%); color:#fff; border-radius: 24px; padding: 34px 34px 28px; box-shadow: 0 24px 60px rgba(18,59,51,.28); }
-.login .brand-name { font-size: 34px; }
+.login .brand-name { font-size: 34px; color: #FFFFFF !important; }
 .login p { color: #CFE3DA; font-size: 15px; margin: 8px 0 0; }
 div.stButton > button, div.stDownloadButton > button { min-height: 42px; border-radius: 10px; font-weight: 600; }
 div.stButton > button[kind="primary"] { background: var(--pine) !important; color:#FFFFFF !important; border-color: var(--pine) !important; }
-div.stButton > button:not([kind="primary"]), div.stDownloadButton > button { background:#FFFFFF !important; color: var(--ink) !important; border-color: var(--line) !important; }
+div.stButton > button:not([kind="primary"]), div.stDownloadButton > button { border-color: var(--line) !important; }
 .foot { text-align:center; color: var(--mute); font-size: 12px; padding: 34px 0 4px; }
 </style>
 """,
@@ -963,7 +940,7 @@ if page == "Dashboard":
         sx(st.dataframe, table, hide_index=True, column_config={"Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"), "Ricavi": st.column_config.NumberColumn(format="€ %.2f"), "Costi": st.column_config.NumberColumn(format="€ %.2f"), "Margine": st.column_config.NumberColumn(format="€ %.2f"), "Margine %": st.column_config.NumberColumn(format="%.1f%%")})
 
 # ============================================================
-# MODULO INGOMBRANTI (CON COLONNE TARIFFE ESPLICITE)
+# MODULO INGOMBRANTI
 # ============================================================
 elif page == "Ingombranti":
     st.info("Carica il file Excel mensile della Raccolta Ingombranti. Il sistema individuerà in automatico Provincia, Comune e Kg a prescindere dal loro ordine nel file.")
@@ -976,7 +953,6 @@ elif page == "Ingombranti":
         try:
             df_ing = pd.read_excel(file_ing, header=3)
             
-            # Pulizia e mapping colonne
             cols_lower = {c: str(c).lower().replace('\n', ' ').strip() for c in df_ing.columns}
             rename_map = {}
             for orig, lower in cols_lower.items():
@@ -1025,12 +1001,10 @@ elif page == "Ingombranti":
                     liv_sup = str(row.get('Livello_Supporto', '')).strip()
                     tipo_mezzo = str(row.get('Mezzo', '')).strip()
                     
-                    # Estrazione Tariffe Esatte
                     costo_h_aut = labor_rate(tariffs, selected_ccnl, liv_aut)
                     costo_h_sup = labor_rate(tariffs, selected_ccnl, liv_sup) if liv_sup and liv_sup.lower() != 'nan' else 0.0
                     costo_h_mezzo = vehicle_rate(tariffs, tipo_mezzo)
                     
-                    # Totali Costo Orario per verifica visiva
                     costo_h_pers_totale = costo_h_aut + costo_h_sup
                     
                     costo_personale = costo_h_pers_totale * ore_dec
@@ -1051,9 +1025,9 @@ elif page == "Ingombranti":
                         "Provincia": provincia,
                         "Comune": comune,
                         "Mezzo": tipo_mezzo,
-                        "Costo h Mezzo": costo_h_mezzo,  # Colonna aggiunta per debug visivo
+                        "Costo h Mezzo": costo_h_mezzo,  
                         "Addetti": f"{liv_aut} + {liv_sup}" if liv_sup and liv_sup != 'nan' else liv_aut,
-                        "Costo h Pers.": costo_h_pers_totale, # Colonna aggiunta per debug visivo
+                        "Costo h Pers.": costo_h_pers_totale, 
                         "Ore": ore_dec,
                         "Ton": ton,
                         "Ricavo Tonnellata": ricavo_ton,
@@ -1075,7 +1049,6 @@ elif page == "Ingombranti":
                 view_df = df_res.copy()
                 view_df.drop(columns=['raw_costo_pers', 'raw_costo_mezzo', 'raw_overhead', 'raw_costo_tot', 'Servizio', 'Note', 'Anomalie'], inplace=True)
                 
-                # Configurazione visiva avanzata della tabella
                 sx(st.dataframe, view_df, hide_index=True, column_config={
                     "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                     "Ore": st.column_config.NumberColumn(format="%.2f"),
@@ -1365,4 +1338,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.3</div>')
+html('<div class="foot">Cristoforo Control Room V8.4</div>')
