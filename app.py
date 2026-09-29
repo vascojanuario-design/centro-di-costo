@@ -2,7 +2,7 @@
 # ============================================================
 # CRISTOFORO | CONTROL ROOM V7
 # Certificazione -> verifica ore -> personale/mezzi -> centro di costo -> margine
-# Avvio:  streamlit run app.py
+# Avvio:  streamlit run app_controllo.py
 # ============================================================
 import hashlib
 import hmac
@@ -315,9 +315,7 @@ def parse_num(value):
 
 
 def parse_hours(value, excel_fraction=False):
-    """Converte un valore in ore decimali.
-    I numeri sono SEMPRE ore, tranne quando excel_fraction=True (frazione di giorno di Excel).
-    Il flag va usato una sola volta, all'importazione del file."""
+    """Converte un valore in ore decimali."""
     if value is None:
         return 0.0
     if isinstance(value, dtime):
@@ -447,8 +445,6 @@ def _fmt_cell(v):
 
 
 def save_csv(df, path):
-    """Scrittura atomica. Date in formato ISO e numeri sempre con 4 decimali,
-    così rileggendo il file non c'è ambiguità tra punto decimale e separatore delle migliaia."""
     out = df.copy()
     for c in out.columns:
         if out[c].dtype == object or pd.api.types.is_datetime64_any_dtype(out[c]):
@@ -459,7 +455,6 @@ def save_csv(df, path):
 
 
 def append_rows(key, reader, new_rows):
-    """Rilegge il file al momento del salvataggio (evita di sovrascrivere dati di altri utenti)."""
     if new_rows is None or len(new_rows) == 0:
         return
     current = reader()
@@ -467,7 +462,7 @@ def append_rows(key, reader, new_rows):
 
 
 def load_table(key, aliases, cols, text=(), dates=(), hours=(), numbers=()):
-    full = {c: list(aliases.get(c, [])) for c in cols}  # ogni colonna riconosce almeno il proprio nome
+    full = {c: list(aliases.get(c, [])) for c in cols}
     df = ensure(aliases_rename(read_csv_flexible(FILES[key]), full), cols)[cols].copy()
     for c in text:
         df[c] = df[c].astype(str).str.strip()
@@ -542,7 +537,6 @@ def cert_key(df):
 
 
 def prepare_cert(df):
-    """Campi derivati: data di analisi, durata da orari, scostamento previsto/svolto, chiave univoca."""
     df = df.copy()
     if df.empty:
         df["Data Analisi"] = pd.Series(dtype="datetime64[ns]")
@@ -569,7 +563,6 @@ def prepare_cert(df):
 
 
 def normalize_certification(raw, duration_mode="auto"):
-    """duration_mode: auto | decimali | frazione. Le frazioni di giorno Excel vengono convertite una sola volta."""
     df = ensure(aliases_rename(raw, CERT_ALIASES), CERT_COLUMNS)[CERT_COLUMNS].copy()
     for col in CERT_TEXT:
         df[col] = df[col].map(txt).str.replace(r"\.0$", "", regex=True) if col == "ID" else df[col].map(txt)
@@ -665,7 +658,6 @@ def init_files():
                  {"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Tariffa tonnellata", "Costo_Orario": 130.0, "Attivo": "SI"}]
         save_csv(pd.DataFrame(rows), FILES["tariffs"])
 
-
 init_files()
 
 
@@ -716,7 +708,6 @@ SERVICES_COLS = ["ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "
                  "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da",
                  "Periodo Da", "Periodo A", "Anomalie"]
 
-
 def read_services():
     df = load_table("services", {
         "ID": ["id_consuntivo"], "Data": ["data_servizio", "giorno", "date"],
@@ -730,11 +721,13 @@ def read_services():
     }, SERVICES_COLS, text=["ID", "Servizio", "Sottoservizio", "Centro di Costo", "Note", "Creato Da"],
         dates=["Data", "Periodo Da", "Periodo A"], hours=["Ore Uomo", "Ore Mezzi"],
         numbers=["Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Anomalie"])
+    
     if not df.empty:
         missing = df["Margine"].eq(0) & (df["Ricavi"].ne(0) | df["Costo Totale"].ne(0))
         df.loc[missing, "Margine"] = df.loc[missing, "Ricavi"] - df.loc[missing, "Costo Totale"]
         no_cc = df["Centro di Costo"].eq("")
-        df.loc[no_cc, "Centro di Costo"] = df.loc[no_cc].apply(lambda r: centro_costo(r["Servizio"], r["Sottoservizio"]), axis=1)
+        if not no_cc.empty and no_cc.any():
+            df.loc[no_cc, "Centro di Costo"] = df.loc[no_cc].apply(lambda r: centro_costo(r["Servizio"], r["Sottoservizio"]), axis=1)
     return df
 
 
@@ -832,8 +825,6 @@ def _has_term(text, term):
 
 
 def rows_for_subservice(cert, subservice):
-    """Match esatto sul comune; in alternativa parola intera in centro di costo/descrizione.
-    'Campi' non cattura 'Campi Bisenzio'."""
     if cert.empty:
         return cert.copy()
     target = norm_txt(subservice)
@@ -850,8 +841,6 @@ def rows_for_subservice(cert, subservice):
 
 
 def rows_for_service(cert, service):
-    """Se il file indica un servizio diverso da quello scelto la riga viene esclusa.
-    Le righe senza indicazione del servizio restano, marcate come 'Solo sottoservizio'."""
     if cert.empty:
         out = cert.copy()
         out["Attribuzione"] = pd.Series(dtype=object)
@@ -943,7 +932,6 @@ def find_overlaps(people):
 
 
 def run_checks(cert, operators, vehicles, max_day_hours=12.0, tol_pct=10.0):
-    """Ritorna (elenco controlli, dettagli per controllo, personale espanso, mezzi espansi)."""
     checks, details = [], {}
 
     def add(sev, name, ok_msg, ko_msg, frame=None):
@@ -977,6 +965,7 @@ def run_checks(cert, operators, vehicles, max_day_hours=12.0, tol_pct=10.0):
             f"Operatori sopra {num(max_day_hours, 0)} ore in un giorno.", daily[daily["Ore"] > max_day_hours].sort_values("Ore", ascending=False))
         add("bad", "Sovrapposizioni orarie", "Nessun operatore è su due servizi negli stessi orari.",
             "Operatori con servizi sovrapposti nello stesso giorno.", find_overlaps(people))
+    
     if not vehs.empty:
         unknown_v = vehs[(vehs["Stato Match"] == "DA ASSEGNARE")].groupby(["Targa", "Attrezzatura"], as_index=False).agg(Righe=("Ore", "size"), Ore=("Ore", "sum"))
         add("warn", "Mezzi fuori anagrafica", "Tutti i mezzi sono in anagrafica.",
@@ -1037,7 +1026,6 @@ PERIODS = ["Tutto", "Ultimi 30 giorni", "Ultimi 90 giorni", "Anno corrente"]
 
 
 def apply_period(df, label):
-    """Ritorna (periodo corrente, periodo precedente di pari durata)."""
     if label == "Tutto" or df.empty:
         return df.copy(), df.iloc[0:0].copy()
     today = pd.Timestamp.today().normalize()
@@ -1208,7 +1196,7 @@ if not st.session_state.logged:
                 st.error("Username o password non corretti.")
             else:
                 row = match.iloc[0]
-                if not str(row["password"]).startswith("pbkdf2$"):  # migra le vecchie password in chiaro
+                if not str(row["password"]).startswith("pbkdf2$"):  
                     users_df.loc[match.index[0], "password"] = hash_password(password)
                     save_csv(users_df, FILES["users"])
                 st.session_state.update(
@@ -1231,7 +1219,6 @@ vehicle_detail = read_vehicle_detail()
 
 
 def cert_pool():
-    """Archivio salvato + importazione corrente non ancora archiviata, senza doppioni."""
     archive, current = read_cert_rows(), st.session_state.cert_df
     if current is None or current.empty:
         return archive
@@ -1402,6 +1389,7 @@ elif page == "Certificazioni":
     mode_label = c2.radio("Come sono scritte le durate nel file", ["Automatico", "Ore decimali (1,5 = 1h30)", "Frazione di giorno Excel"],
                           help="Automatico: se tutti i numeri sono minori o uguali a 1 vengono letti come frazioni di giorno Excel, altrimenti come ore decimali.")
     mode = {"Automatico": "auto", "Ore decimali (1,5 = 1h30)": "decimali", "Frazione di giorno Excel": "frazione"}[mode_label]
+    
     if uploaded is not None:
         sig = f"{uploaded.name}|{uploaded.size}|{mode}"
         if st.session_state.cert_sig != sig:
@@ -1505,9 +1493,11 @@ elif page == "Consuntivazione":
     d_max = dates.max().date() if not dates.empty else date.today()
     period = c3.date_input("Periodo da consuntivare", value=(d_min, d_max), format="DD/MM/YYYY",
                            key=f"per_{service}_{subservice}_{len(pool)}_{d_min}_{d_max}")
+    
     if not (isinstance(period, (tuple, list)) and len(period) == 2):
         st.info("Scegli la data di fine del periodo.")
         st.stop()
+    
     d0, d1 = period
 
     html(f'<div class="panel"><div class="panel-sub">Centro di costo generato dal servizio e dal sottoservizio</div>'
