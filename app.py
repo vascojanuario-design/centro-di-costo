@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.6
-# Correzioni: grafico ore, guardie sui filtri, import Ingombranti robusto,
-# anti-duplicati, sicurezza utenti, chiave univoca nei dettagli di consuntivo
+# CRISTOFORO | CONTROL ROOM V8.2
+# Fix Colori Testo, Forzatura Tema Chiaro e Modulo Ingombranti
+# INSERIMENTO MATRICE 13 MEZZI IN TARIFFARIO
 # ============================================================
 import hashlib
 import hmac
@@ -10,7 +10,6 @@ import io
 import os
 import re
 import secrets
-import time as _time
 import unicodedata
 from datetime import date, datetime, timedelta
 from datetime import time as dtime
@@ -27,8 +26,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "V8.6"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# --- FORZATURA TEMA CHIARO (Anti-Testo Bianco) ---
+st_dir = os.path.join(BASE_DIR, ".streamlit")
+os.makedirs(st_dir, exist_ok=True)
+config_path = os.path.join(st_dir, "config.toml")
+if not os.path.exists(config_path):
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.write("[theme]\nbase='light'\nprimaryColor='#123B33'\nbackgroundColor='#F2F5F2'\nsecondaryBackgroundColor='#FFFFFF'\ntextColor='#14211D'\n")
+# -------------------------------------------------
 
 FILES = {
     "users": os.path.join(BASE_DIR, "utenti_cristoforo.csv"),
@@ -52,8 +59,8 @@ SERVICE_TREE = {
 }
 ALL_SUBSERVICES = sorted({x for values in SERVICE_TREE.values() for x in values})
 
+# --- NUOVA MATRICE MEZZI UFFICIALE ---
 DEFAULT_VEHICLE_TYPES = [
-    "35 qt", "Vasca", "3 Assi", "4 Assi", "Scarrabile", "Leggero", "Furgone", "Compattatore", "Spazzatrice",
     "1. Porter", "2. Porter Costipatore", "3. 35qt Vasca", "4. 35qt Vasca Costipatore",
     "5. 75qt Vasca Costipatore", "6. Monoscocca 10/12Qt", "7. 2 Assi 12/18mc",
     "8. 3 Assi 21/27mc", "9. 4 Assi 28/32mc", "10. Semi-Rimorchio 42/48mc",
@@ -68,13 +75,20 @@ CONTRACTS = {
 }
 ALL_LEVELS = sorted({lv for levels in CONTRACTS.values() for lv in levels})
 
+# Costi orari aziendali stimati di partenza (modificabili dal pannello)
 DEFAULT_VEHICLE_COSTS = {
-    "35 qt": 20.0, "Vasca": 22.0, "3 Assi": 45.0, "4 Assi": 50.0, "Scarrabile": 40.0,
-    "1. Porter": 15.0, "2. Porter Costipatore": 16.5, "3. 35qt Vasca": 20.0,
-    "4. 35qt Vasca Costipatore": 22.0, "5. 75qt Vasca Costipatore": 28.0,
-    "6. Monoscocca 10/12Qt": 35.0, "7. 2 Assi 12/18mc": 40.0, "8. 3 Assi 21/27mc": 45.0,
-    "9. 4 Assi 28/32mc": 50.0, "10. Semi-Rimorchio 42/48mc": 65.0,
-    "11. 3 Assi Scarrabile": 42.0, "12. 4 Assi Scarrabile": 48.0,
+    "1. Porter": 15.0,
+    "2. Porter Costipatore": 16.5,
+    "3. 35qt Vasca": 20.0,
+    "4. 35qt Vasca Costipatore": 22.0,
+    "5. 75qt Vasca Costipatore": 28.0,
+    "6. Monoscocca 10/12Qt": 35.0,
+    "7. 2 Assi 12/18mc": 40.0,
+    "8. 3 Assi 21/27mc": 45.0,
+    "9. 4 Assi 28/32mc": 50.0,
+    "10. Semi-Rimorchio 42/48mc": 65.0,
+    "11. 3 Assi Scarrabile": 42.0,
+    "12. 4 Assi Scarrabile": 48.0,
     "13. 3 Assi Scarrabile con Caricatore": 55.0
 }
 
@@ -101,21 +115,33 @@ st.markdown(
     --body:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;
 }
 html, body, [class*="css"], .stApp { font-family: var(--body); font-variant-numeric: tabular-nums; }
+.stApp { background: var(--paper); color: var(--ink); }
 [data-testid="stHeader"] { background: transparent; }
 .block-container { max-width: 1480px; padding-top: 1.4rem; padding-bottom: 4rem; }
 footer { visibility: hidden; }
 
+/* FIX COLORI TESTO (Anti-Dark Mode) */
+[data-testid="stAppViewContainer"] { background: var(--paper); color: var(--ink); }
 .stMarkdown p, .stMarkdown li, [data-testid="stMarkdownContainer"] p { color: var(--ink) !important; }
 [data-testid="stMetricLabel"] p { color: var(--mute) !important; }
 [data-testid="stMetricValue"] { color: var(--ink) !important; }
 [data-testid="stCheckbox"] p, [data-testid="stRadio"] p { color: var(--ink) !important; }
-div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="textarea"] { border-radius: 10px !important; }
 
+/* INPUTS, SELECT E POPOVER FIX TESTO BIANCO */
+div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !important; border-color: var(--line) !important; border-radius: 10px !important; }
+div[data-baseweb="select"] *, div[data-baseweb="input"] *, input, textarea { color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important; }
+div[data-baseweb="popover"] { background-color: var(--card) !important; }
+div[data-baseweb="popover"] * { color: var(--ink) !important; }
+
+/* TABS FIX TESTO BIANCO */
 [data-testid="stTabs"] button p { font-size: 14px; font-weight: 600; color: var(--mute) !important; }
 [data-testid="stTabs"] button[aria-selected="true"] p { color: var(--pine) !important; }
 [data-testid="stTabs"] button[aria-selected="true"] { border-bottom-color: var(--pine) !important; }
+
+/* DATAFRAME */
 [data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
 
+/* SIDEBAR E STRUTTURA LOGO */
 section[data-testid="stSidebar"] { background: linear-gradient(180deg, #0F332C 0%, #123B33 55%, #16483D 100%) !important; border-right: 0 !important; }
 section[data-testid="stSidebar"] * { color: #E6EFEA !important; }
 section[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.12) !important; }
@@ -139,7 +165,7 @@ section[data-testid="stSidebar"] div.stButton > button { background: rgba(255,25
 .page-head { display:flex; justify-content:space-between; align-items:flex-end; margin: 2px 0 18px; gap: 16px; }
 .page-title { font-family: var(--display); font-weight: 800; font-size: 34px; letter-spacing: -1px; color: var(--ink); line-height: 1.05; }
 .page-sub { color: var(--mute); font-size: 14px; margin-top: 5px; }
-.who { border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 500; white-space: nowrap; }
+.who { background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 7px 14px; font-size: 13px; font-weight: 500; color: var(--ink2); white-space: nowrap; }
 .who i { display:inline-block; width:8px; height:8px; border-radius:50%; background: var(--moss); margin-right:8px; }
 .section-title { font-family: var(--display); font-weight: 700; font-size: 19px; color: var(--ink); margin: 26px 0 10px; letter-spacing: -.3px; }
 .section-note { color: var(--mute); font-size: 13px; margin: -6px 0 10px; }
@@ -160,7 +186,7 @@ section[data-testid="stSidebar"] div.stButton > button { background: rgba(255,25
 .stat-note { font-size: 12px; color: var(--mute); margin-top: 3px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .stat-spark { position:absolute; right:0; top:14px; width:96px; height:34px; opacity:.95; }
 .stat-spark svg { width:100%; height:100%; display:block; }
-.strip { display:grid; grid-template-columns: repeat(4, 1fr); gap: 0; border:1px solid var(--line); border-radius: 14px; margin-top: 18px; }
+.strip { display:grid; grid-template-columns: repeat(4, 1fr); gap: 0; background: var(--card); border:1px solid var(--line); border-radius: 14px; margin-top: 18px; }
 .strip .cell { padding: 15px 20px; border-right: 1px solid var(--line); }
 .strip .cell:last-child { border-right: 0; }
 .cell-label { font-size: 13px; color: var(--mute); }
@@ -179,54 +205,35 @@ section[data-testid="stSidebar"] div.stButton > button { background: rgba(255,25
 .pill.ok { background: var(--moss-soft); color: #1E5C41 !important; }
 .pill.warn { background: var(--signal-soft); color: #7A5200 !important; }
 .pill.bad { background: var(--alert-soft); color: #9B2A1D !important; }
-.panel { border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
+.panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
 .panel-head { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--ink); }
 .panel-sub { font-size: 13px; color: var(--mute); margin-top: 3px; }
 .chart-head { margin: 0 2px 6px; }
 .svc { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .svc:last-child { border-bottom: 0; }
 .svc-name { font-weight: 600; font-size: 14px; color: var(--ink); margin-bottom: 2px; }
-.check { display:flex; gap: 14px; align-items:flex-start; padding: 13px 16px; border:1px solid var(--line); border-left-width: 4px; border-radius: 10px; margin-bottom: 8px; }
+.check { display:flex; gap: 14px; align-items:flex-start; padding: 13px 16px; background: var(--card); border:1px solid var(--line); border-left-width: 4px; border-radius: 10px; margin-bottom: 8px; }
 .check.ok { border-left-color: var(--moss); } .check.warn { border-left-color: var(--signal); } .check.bad { border-left-color: var(--alert); }
 .check-title { font-weight: 600; font-size: 14px; color: var(--ink); }
 .check-msg { font-size: 13px; color: var(--mute); margin-top: 2px; }
 .check-n { margin-left:auto; font-family: var(--display); font-weight: 700; font-size: 20px; color: var(--ink); }
-.funnel { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 14px; }
-.funnel span { background:#EEF2EF; border-radius:8px; padding:5px 10px; font-size:13px; color: var(--ink2); }
 .login { max-width: 460px; margin: 9vh auto 18px; background: linear-gradient(150deg, #1B5245 0%, var(--pine) 70%); color:#fff; border-radius: 24px; padding: 34px 34px 28px; box-shadow: 0 24px 60px rgba(18,59,51,.28); }
-.login .brand-name { font-size: 34px; color: #FFFFFF !important; }
+.login .brand-name { font-size: 34px; }
 .login p { color: #CFE3DA; font-size: 15px; margin: 8px 0 0; }
 div.stButton > button, div.stDownloadButton > button { min-height: 42px; border-radius: 10px; font-weight: 600; }
 div.stButton > button[kind="primary"] { background: var(--pine) !important; color:#FFFFFF !important; border-color: var(--pine) !important; }
-div.stButton > button:not([kind="primary"]), div.stDownloadButton > button { border-color: var(--line) !important; }
+div.stButton > button:not([kind="primary"]), div.stDownloadButton > button { background:#FFFFFF !important; color: var(--ink) !important; border-color: var(--line) !important; }
 .foot { text-align:center; color: var(--mute); font-size: 12px; padding: 34px 0 4px; }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-
 def sx(fn, *args, **kwargs):
-    """Chiama un widget con larghezza piena. Il metodo supportato viene scoperto una volta sola
-    per funzione, cosi' non si rischiano widget duplicati a ogni rerun."""
-    modes = st.session_state.setdefault("_sx_modes", {})
-    name = getattr(fn, "__qualname__", None) or getattr(fn, "__name__", repr(fn))
-    mode = modes.get(name)
-    if mode == "old":
-        return fn(*args, use_container_width=True, **kwargs)
-    if mode == "new":
-        return fn(*args, width="stretch", **kwargs)
-    try:
-        out = fn(*args, width="stretch", **kwargs)
-        modes[name] = "new"
-        return out
-    except Exception:
-        modes[name] = "old"
-        return fn(*args, use_container_width=True, **kwargs)
-
+    try: return fn(*args, width="stretch", **kwargs)
+    except Exception: return fn(*args, use_container_width=True, **kwargs)
 
 def html(text): st.markdown(text, unsafe_allow_html=True)
-
 
 def txt(value):
     if value is None: return ""
@@ -235,24 +242,20 @@ def txt(value):
     except (TypeError, ValueError): pass
     return str(value).strip()
 
-
 def norm_txt(value):
     t = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode().lower()
     return re.sub(r"\s+", " ", t).strip()
-
 
 def clean_col(value):
     t = norm_txt(str(value).replace("\ufeff", ""))
     t = t.replace("€", "euro").replace("/", "_").replace("-", "_").replace(" ", "_")
     return re.sub(r"_+", "_", t).strip("_")
 
-
 def normalize_columns(df):
     if df is None: return pd.DataFrame()
     out = df.copy()
     out.columns = [clean_col(c) for c in out.columns]
     return out
-
 
 def aliases_rename(df, aliases):
     df = normalize_columns(df)
@@ -265,17 +268,13 @@ def aliases_rename(df, aliases):
                 break
     return df.rename(columns=mapping) if mapping else df
 
-
 def ensure(df, columns):
     out = df.copy() if df is not None else pd.DataFrame()
     for col in columns:
         if col not in out.columns: out[col] = ""
     return out
 
-
-def parse_num(value, thousands=False):
-    """Converte numeri in formato italiano o inglese.
-    thousands=True: un solo punto seguito da 3 cifre (es. 1.250) e' letto come separatore delle migliaia."""
+def parse_num(value):
     if value is None: return 0.0
     if isinstance(value, (int, float, np.integer, np.floating)): return 0.0 if pd.isna(value) else float(value)
     text = str(value).strip()
@@ -283,12 +282,11 @@ def parse_num(value, thousands=False):
     text = text.replace("€", "").replace("EUR", "").replace("eur", "").replace(" ", "")
     if "," in text and "." in text: text = text.replace(".", "").replace(",", ".") if text.rfind(",") > text.rfind(".") else text.replace(",", "")
     elif "," in text: text = text.replace(",", ".")
-    elif thousands and text.count(".") == 1:
+    elif text.count(".") == 1:
         a, b = text.split(".")
-        if len(b) == 3 and a.lstrip("-").isdigit() and len(a.lstrip("-")) <= 3 and a not in {"0", "-0"}: text = a + b
+        if len(b) == 3 and a.lstrip("-").isdigit() and len(a.lstrip("-")) <= 3 and a not in {"0", "-0"}: text = a + b 
     try: return float(text)
     except ValueError: return 0.0
-
 
 def parse_hours(value, excel_fraction=False):
     if value is None: return 0.0
@@ -306,9 +304,7 @@ def parse_hours(value, excel_fraction=False):
         except ValueError: pass
     return parse_num(text)
 
-
 ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
-
 
 def parse_date(value):
     if isinstance(value, (pd.Timestamp, datetime, date)): return pd.Timestamp(value)
@@ -319,56 +315,45 @@ def parse_date(value):
         return pd.to_datetime(t, dayfirst=True, errors="coerce")
     except Exception: return pd.NaT
 
-
 def time_to_min(value):
     if isinstance(value, dtime): return value.hour * 60 + value.minute
     m = re.match(r"^(\d{1,2}):(\d{2})", str(value).strip())
     return int(m.group(1)) * 60 + int(m.group(2)) if m else None
-
 
 def safe_sum(series):
     if series is None: return 0.0
     try: return float(pd.Series(series).apply(parse_num).sum())
     except Exception: return 0.0
 
-
 def euro(value):
     x = parse_num(value)
     return f"€ {x:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
 
 def num(value, decimals=1):
     x = parse_num(value)
     return f"{x:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-
 def pct(value):
     return f"{parse_num(value):.1f}%".replace(".", ",")
-
 
 def split_list(value, seps=r"[;,|\n]+"):
     if value is None: return []
     return [p.strip() for p in re.split(seps, str(value)) if p.strip() and p.strip().lower() != "nan"]
 
-
 def plate_key(value):
     return re.sub(r"[^A-Z0-9]", "", str(value).upper())
-
 
 def centro_costo(service, subservice):
     return f"{service} / {subservice}"
 
-
 def is_admin():
     return str(st.session_state.get("ruolo", "")).lower() in {"admin", "direzione"}
-
 
 def status_for_margin(margin, margin_pct, has_data):
     if not has_data: return "Nessun dato", "Nessun consuntivo nel periodo", "warn"
     if margin < 0: return "Critico", "Margine negativo", "bad"
     if margin_pct < 5: return "Attenzione", "Margine molto contenuto", "warn"
     return "In equilibrio", "Margine sotto controllo", "ok"
-
 
 def read_csv_flexible(path):
     if not os.path.exists(path): return pd.DataFrame()
@@ -379,14 +364,12 @@ def read_csv_flexible(path):
         except Exception: continue
     return pd.DataFrame()
 
-
 def _fmt_cell(v):
     if isinstance(v, (pd.Timestamp, datetime)):
         if pd.isna(v): return ""
         return v.strftime("%Y-%m-%d %H:%M:%S") if (v.hour or v.minute or v.second) else v.strftime("%Y-%m-%d")
     if isinstance(v, date): return v.isoformat()
     return v
-
 
 def save_csv(df, path):
     out = df.copy()
@@ -396,12 +379,10 @@ def save_csv(df, path):
     out.to_csv(tmp, index=False, encoding="utf-8-sig", float_format="%.4f")
     os.replace(tmp, path)
 
-
 def append_rows(key, reader, new_rows):
     if new_rows is None or len(new_rows) == 0: return
     current = reader()
     save_csv(pd.concat([current, new_rows], ignore_index=True), FILES[key])
-
 
 def load_table(key, aliases, cols, text=(), dates=(), hours=(), numbers=()):
     full = {c: list(aliases.get(c, [])) for c in cols}
@@ -412,39 +393,19 @@ def load_table(key, aliases, cols, text=(), dates=(), hours=(), numbers=()):
     for c in numbers: df[c] = df[c].apply(parse_num)
     return df
 
-
-# ------------------------------------------------------------
-# Password: PBKDF2 con numero di iterazioni salvato nell'hash
-# formato nuovo:  pbkdf2$<iterazioni>$<salt>$<digest>
-# formato legacy: pbkdf2$<salt>$<digest>  (120.000 iterazioni)
-# ------------------------------------------------------------
-PBKDF_ITER = 600_000
-LEGACY_ITER = 120_000
-
-
 def hash_password(password, salt=None):
     salt = salt or secrets.token_hex(8)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF_ITER).hex()
-    return f"pbkdf2${PBKDF_ITER}${salt}${digest}"
-
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000).hex()
+    return f"pbkdf2${salt}${digest}"
 
 def check_password(stored, password):
     stored = str(stored)
     if stored.startswith("pbkdf2$"):
-        parts = stored.split("$")
-        try:
-            if len(parts) == 4: iters, salt, digest = int(parts[1]), parts[2], parts[3]
-            elif len(parts) == 3: iters, salt, digest = LEGACY_ITER, parts[1], parts[2]
-            else: return False
+        try: _, salt, digest = stored.split("$")
         except ValueError: return False
-        cand = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), iters).hex()
+        cand = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000).hex()
         return hmac.compare_digest(cand, digest)
     return bool(stored) and hmac.compare_digest(stored, password)
-
-
-def needs_rehash(stored):
-    return not str(stored).startswith(f"pbkdf2${PBKDF_ITER}$")
-
 
 CERT_ALIASES = {
     "ID": ["id_servizio", "id_record", "id_certificazione"], "Codice": ["codice_servizio", "codice_mezzo", "code"],
@@ -461,15 +422,12 @@ CERT_COLUMNS = list(CERT_ALIASES.keys())
 CERT_TEXT = ["ID", "Codice", "Descrizione", "Comuni", "Centro di Costo", "Operatori", "Targa", "Attrezzatura", "Note", "Stato"]
 CERT_TIMES = ["Inizio Pianificazione", "Fine Pianificazione", "Inizio Svolgimento", "Fine Svolgimento"]
 
-
 def is_certified(stato): return norm_txt(stato).startswith("certific")
-
 
 def cert_key(df):
     d = pd.to_datetime(df["Data Analisi"], errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
     return (df["ID"].astype(str) + "|" + d + "|" + df["Operatori"].astype(str) + "|" + df["Targa"].astype(str)
             + "|" + df["Attrezzatura"].astype(str) + "|" + df["Inizio Svolgimento"].astype(str))
-
 
 def prepare_cert(df):
     df = df.copy()
@@ -477,7 +435,6 @@ def prepare_cert(df):
         df["Data Analisi"] = pd.Series(dtype="datetime64[ns]"); df["Scostamento"] = pd.Series(dtype=float); df["Chiave"] = pd.Series(dtype=object)
         return df
     df["Data Analisi"] = pd.to_datetime(df["Data Svolgimento"], errors="coerce").fillna(pd.to_datetime(df["Data Pianificazione"], errors="coerce"))
-
     def duration(row):
         if row["Durata"] > 0: return row["Durata"]
         s, e = time_to_min(row["Inizio Svolgimento"]), time_to_min(row["Fine Svolgimento"])
@@ -488,14 +445,11 @@ def prepare_cert(df):
     df["Chiave"] = cert_key(df)
     return df
 
-
 def normalize_certification(raw, duration_mode="auto"):
     df = ensure(aliases_rename(raw, CERT_ALIASES), CERT_COLUMNS)[CERT_COLUMNS].copy()
-    for col in CERT_TEXT:
-        df[col] = df[col].map(txt).str.replace(r"\.0$", "", regex=True) if col == "ID" else df[col].map(txt)
+    for col in CERT_TEXT: df[col] = df[col].map(txt).str.replace(r"\.0$", "", regex=True) if col == "ID" else df[col].map(txt)
     for col in ["Data Pianificazione", "Data Svolgimento"]: df[col] = pd.to_datetime(df[col].apply(parse_date), errors="coerce")
     for col in CERT_TIMES: df[col] = df[col].map(txt)
-
     def convert(col):
         s = df[col]
         numbers = [float(x) for x in s if isinstance(x, (int, float, np.integer, np.floating)) and not pd.isna(x)]
@@ -505,7 +459,6 @@ def normalize_certification(raw, duration_mode="auto"):
     df["Durata"] = convert("Durata")
     return prepare_cert(df)
 
-
 def score_cert_header(df):
     if df is None or df.empty: return 0
     cols = {clean_col(c) for c in df.columns}
@@ -513,7 +466,6 @@ def score_cert_header(df):
     for target, names in CERT_ALIASES.items():
         known.add(clean_col(target)); known.update(clean_col(x) for x in names)
     return len(cols & known)
-
 
 def load_uploaded_raw(uploaded):
     name = uploaded.name.lower()
@@ -538,7 +490,6 @@ def load_uploaded_raw(uploaded):
         return best
     raise ValueError("Formato non supportato: usa CSV o Excel.")
 
-
 def init_files():
     if not os.path.exists(FILES["users"]):
         save_csv(pd.DataFrame([{"username": u, "password": hash_password(DEFAULT_PASSWORDS[u]), "nome": n, "ruolo": r, "autorizzazioni": a} for u, n, r, a in DEFAULT_USERS_META]), FILES["users"])
@@ -546,8 +497,8 @@ def init_files():
         "operators": ["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Sottoservizio"],
         "vehicles": ["Targa", "Mezzo", "Tipo", "Sottoservizio"],
         "services": ["ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da", "Periodo Da", "Periodo A", "Anomalie"],
-        "personnel": ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match", "Chiave"],
-        "vehicle_detail": ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match", "Chiave"],
+        "personnel": ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match"],
+        "vehicle_detail": ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match"],
         "certifications": ["ID Import", "Data Import", "File", "Righe", "Ore", "Stato", "Operatore"],
         "cert_rows": CERT_COLUMNS + ["ID Import"],
     }
@@ -562,9 +513,7 @@ def init_files():
                  {"Tipo": "Ricavo Tonnellata", "Contratto": "Ingombranti", "Livello_o_Tipo": "Mugello", "Costo_Orario": 160.0, "Attivo": "SI"}]
         save_csv(pd.DataFrame(rows), FILES["tariffs"])
 
-
 init_files()
-
 
 def read_users():
     cols = ["username", "password", "nome", "ruolo", "autorizzazioni"]
@@ -572,16 +521,13 @@ def read_users():
     for c in cols: df[c] = df[c].astype(str).str.strip()
     return df
 
-
 def read_operators():
     cols = ["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Sottoservizio"]
     return load_table("operators", {"Matricola": ["id_operatore", "codice_operatore", "employee_id"], "Nome": ["first_name"], "Cognome": ["last_name"], "Contratto": ["ccnl"], "Livello": ["level", "inquadramento"], "Sottoservizio": ["cantiere", "commessa", "subservice"]}, cols, text=cols)
 
-
 def read_vehicles():
     cols = ["Targa", "Mezzo", "Tipo", "Sottoservizio"]
     return load_table("vehicles", {"Targa": ["plate"], "Mezzo": ["veicolo", "vehicle"], "Tipo": ["tipo_mezzo", "categoria_mezzo"], "Sottoservizio": ["cantiere", "commessa", "subservice"]}, cols, text=cols)
-
 
 def read_tariffs():
     cols = ["Tipo", "Contratto", "Livello_o_Tipo", "Costo_Orario", "Attivo"]
@@ -589,9 +535,7 @@ def read_tariffs():
     df["Attivo"] = df["Attivo"].replace("", "SI")
     return df
 
-
 SERVICES_COLS = ["ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da", "Periodo Da", "Periodo A", "Anomalie"]
-
 
 def read_services():
     df = load_table("services", {"ID": ["id_consuntivo"], "Data": ["data_servizio", "giorno", "date"], "Servizio": ["categoria", "servizio_principale", "tipo_servizio"], "Sottoservizio": ["sotto_servizio", "dettaglio", "cantiere", "commessa"], "Centro di Costo": ["centro_di_costo", "centro_costo"], "Tonnellate": ["ton", "tonnellaggio"], "Ricavi": ["ricavo", "ricavi_euro", "revenue", "fatturato"], "Costo Personale": ["costo_personale"], "Costo Mezzi": ["costo_mezzi"], "Costo Totale": ["costo", "costi", "costo_totale"], "Margine": ["margine_netto", "profitto"], "Ore Uomo": ["ore_personale", "ore_operatori"], "Ore Mezzi": ["ore_veicoli"], "Creato Da": ["operatore", "utente", "created_by"]}, SERVICES_COLS, text=["ID", "Servizio", "Sottoservizio", "Centro di Costo", "Note", "Creato Da"], dates=["Data", "Periodo Da", "Periodo A"], hours=["Ore Uomo", "Ore Mezzi"], numbers=["Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Anomalie"])
@@ -602,21 +546,17 @@ def read_services():
         if not no_cc.empty and no_cc.any(): df.loc[no_cc, "Centro di Costo"] = df.loc[no_cc].apply(lambda r: centro_costo(r["Servizio"], r["Sottoservizio"]), axis=1)
     return df
 
-
 def read_personnel():
-    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match", "Chiave"]
-    return load_table("personnel", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Operatore": ["dipendente", "addetto"], "Contratto": ["ccnl"], "Livello": ["level", "inquadramento"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Stato Match", "Chiave"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
-
+    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
+    return load_table("personnel", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Operatore": ["dipendente", "addetto"], "Contratto": ["ccnl"], "Livello": ["level", "inquadramento"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Stato Match"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
 
 def read_vehicle_detail():
-    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match", "Chiave"]
-    return load_table("vehicle_detail", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Tipo": ["tipo_mezzo"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Stato Match", "Chiave"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
-
+    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
+    return load_table("vehicle_detail", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Tipo": ["tipo_mezzo"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Stato Match"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
 
 def read_imports():
     cols = ["ID Import", "Data Import", "File", "Righe", "Ore", "Stato", "Operatore"]
     return load_table("certifications", {"ID Import": ["id_import"], "Data Import": ["data_import"]}, cols, text=["ID Import", "File", "Stato", "Operatore"], dates=["Data Import"], numbers=["Righe", "Ore"])
-
 
 def read_cert_rows():
     df = ensure(aliases_rename(read_csv_flexible(FILES["cert_rows"]), {**CERT_ALIASES, "ID Import": ["id_import", "import_id"]}), CERT_COLUMNS + ["ID Import"])[CERT_COLUMNS + ["ID Import"]].copy()
@@ -626,20 +566,10 @@ def read_cert_rows():
     df["Durata"] = df["Durata"].apply(parse_hours)
     return prepare_cert(df)
 
-
 def split_access(value):
     raw = str(value).strip()
     if raw.upper() in {"TUTTI", "ALL", "*"}: return ALL_SUBSERVICES.copy()
     return sorted({x.strip() for x in re.split(r"[,;|]", raw) if x.strip() in ALL_SUBSERVICES})
-
-
-def invalid_access(value):
-    """Restituisce i sottoservizi scritti male in una cella 'autorizzazioni'."""
-    raw = str(value).strip()
-    if raw.upper() in {"TUTTI", "ALL", "*"}: return []
-    items = [x.strip() for x in re.split(r"[,;|]", raw) if x.strip()]
-    return [x for x in items if x not in ALL_SUBSERVICES]
-
 
 def authorized(df, column="Sottoservizio"):
     if df is None: return pd.DataFrame()
@@ -648,41 +578,32 @@ def authorized(df, column="Sottoservizio"):
     if not allowed or column not in df.columns: return df.iloc[0:0].copy()
     return df[df[column].astype(str).str.strip().isin(allowed)].copy()
 
-
 def rate_lookup(tariffs, tipo, key, contract=None):
-    tipo_n, key_n = norm_txt(tipo), norm_txt(key)
-    m = (tariffs["Tipo"].map(norm_txt).eq(tipo_n)
-         & tariffs["Livello_o_Tipo"].map(norm_txt).eq(key_n)
+    m = (tariffs["Tipo"].astype(str).str.lower().eq(tipo.lower())
+         & tariffs["Livello_o_Tipo"].astype(str).str.strip().str.lower().eq(str(key).strip().lower())
          & tariffs["Attivo"].astype(str).str.upper().eq("SI"))
-    if contract is not None and str(contract).strip(): m &= tariffs["Contratto"].map(norm_txt).eq(norm_txt(contract))
+    if contract is not None and str(contract).strip(): m &= tariffs["Contratto"].astype(str).str.strip().eq(str(contract).strip())
     d = tariffs.loc[m, "Costo_Orario"]
     return float(d.iloc[0]) if not d.empty else None
 
-
 def labor_rate(tariffs, contract, level): return rate_lookup(tariffs, "personale", level, contract) or 0.0
 def vehicle_rate(tariffs, kind): return rate_lookup(tariffs, "mezzo", kind) or 0.0
-
-
 def general_rate(tariffs, name, default=0.0):
     v = rate_lookup(tariffs, "generale", name)
     return default if v is None else v
 
-
 def _has_term(text, term): return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) is not None
-
 
 def rows_for_subservice(cert, subservice):
     if cert.empty: return cert.copy()
     target = norm_txt(subservice)
     longer = [norm_txt(s) for s in ALL_SUBSERVICES if target in norm_txt(s) and norm_txt(s) != target]
-
     def ok(row):
         parts = [norm_txt(p) for p in re.split(r"[;,/|]+", str(row["Comuni"])) if p.strip()]
         if target in parts: return True
         blob = norm_txt(f'{row["Centro di Costo"]} {row["Descrizione"]}')
         return _has_term(blob, target) and not any(_has_term(blob, lg) for lg in longer)
     return cert[cert.apply(ok, axis=1)].copy()
-
 
 def rows_for_service(cert, service):
     if cert.empty:
@@ -696,10 +617,8 @@ def rows_for_service(cert, service):
     out["Attribuzione"] = np.where(this[out.index], "Servizio indicato nel file", "Solo sottoservizio")
     return out
 
-
-PEOPLE_COLS = ["Certificazione ID", "Operatore", "Matricola", "Contratto", "Livello", "Ore", "Data", "Inizio", "Fine", "Stato Match", "Chiave"]
-VEHICLE_COLS = ["Certificazione ID", "Targa", "Attrezzatura", "Tipo", "Ore", "Data", "Stato Match", "Chiave"]
-
+PEOPLE_COLS = ["Certificazione ID", "Operatore", "Matricola", "Contratto", "Livello", "Ore", "Data", "Inizio", "Fine", "Stato Match"]
+VEHICLE_COLS = ["Certificazione ID", "Targa", "Attrezzatura", "Tipo", "Ore", "Data", "Stato Match"]
 
 def op_lookup(operators):
     lookup = {}
@@ -708,7 +627,6 @@ def op_lookup(operators):
             k = norm_txt(k)
             if k: lookup.setdefault(k, r)
     return lookup
-
 
 def expand_people(cert, operators):
     lookup, rows = op_lookup(operators), []
@@ -719,10 +637,9 @@ def expand_people(cert, operators):
                 "Certificazione ID": r["ID"], "Operatore": person, "Matricola": "" if found is None else found["Matricola"],
                 "Contratto": "" if found is None else found["Contratto"], "Livello": "" if found is None else found["Livello"],
                 "Ore": float(r["Durata"]), "Data": r["Data Analisi"], "Inizio": r["Inizio Svolgimento"], "Fine": r["Fine Svolgimento"],
-                "Stato Match": "MATCH ANAGRAFICA" if found is not None else "DA ASSEGNARE", "Chiave": r["Chiave"],
+                "Stato Match": "MATCH ANAGRAFICA" if found is not None else "DA ASSEGNARE",
             })
     return pd.DataFrame(rows, columns=PEOPLE_COLS)
-
 
 def expand_vehicles(cert, vehicles):
     lookup = {plate_key(r["Targa"]): r for _, r in vehicles.iterrows() if plate_key(r["Targa"])}
@@ -735,10 +652,9 @@ def expand_vehicles(cert, vehicles):
             rows.append({
                 "Certificazione ID": r["ID"], "Targa": plate, "Attrezzatura": r["Attrezzatura"],
                 "Tipo": "" if found is None else found["Tipo"], "Ore": float(r["Durata"]), "Data": r["Data Analisi"],
-                "Stato Match": "MATCH ANAGRAFICA" if found is not None else "DA ASSEGNARE", "Chiave": r["Chiave"],
+                "Stato Match": "MATCH ANAGRAFICA" if found is not None else "DA ASSEGNARE",
             })
     return pd.DataFrame(rows, columns=VEHICLE_COLS)
-
 
 def find_overlaps(people):
     p = people.copy()
@@ -757,10 +673,8 @@ def find_overlaps(people):
             if prev_end is None or end > prev_end: prev_end, prev_id = end, r["Certificazione ID"]
     return pd.DataFrame(rows)
 
-
 def run_checks(cert, operators, vehicles, max_day_hours=12.0, tol_pct=10.0):
     checks, details = [], {}
-
     def add(sev, name, ok_msg, ko_msg, frame=None):
         n = 0 if frame is None else len(frame)
         checks.append({"sev": "ok" if n == 0 else sev, "name": name, "msg": ok_msg if n == 0 else ko_msg, "n": n})
@@ -772,7 +686,7 @@ def run_checks(cert, operators, vehicles, max_day_hours=12.0, tol_pct=10.0):
     add("warn", "Data mancante", "Tutte le righe hanno una data.", "Righe senza data di svolgimento.", cert[cert["Data Analisi"].isna()][cols])
     dup = cert[cert["Chiave"].duplicated(keep=False)]
     add("bad", "Righe duplicate", "Nessuna riga duplicata.", "Righe identiche presenti più volte.", dup[cols])
-
+    
     if not people.empty:
         unknown = people[people["Stato Match"] == "DA ASSEGNARE"].groupby("Operatore", as_index=False).agg(Righe=("Ore", "size"), Ore=("Ore", "sum"))
         add("warn", "Operatori fuori anagrafica", "Tutti gli operatori sono in anagrafica.", "Operatori senza contratto.", unknown)
@@ -791,7 +705,6 @@ def run_checks(cert, operators, vehicles, max_day_hours=12.0, tol_pct=10.0):
         add("warn", "Scostamento previsto", f"Entro {num(tol_pct, 0)}%.", f"Scostamento oltre il {num(tol_pct, 0)}%.", out.sort_values("Scostamento %", key=abs, ascending=False))
     return checks, details, people, vehs
 
-
 def price_people(df, tariffs):
     out = df.copy()
     out["Ore"] = out["Ore"].apply(parse_hours)
@@ -808,7 +721,6 @@ def price_people(df, tariffs):
     out["Costo Totale"] = out["Ore"] * out["Costo Orario"]
     return out
 
-
 def price_vehicles(df, tariffs):
     out = df.copy()
     out["Ore"] = out["Ore"].apply(parse_hours)
@@ -823,9 +735,7 @@ def price_vehicles(df, tariffs):
     out["Costo Totale"] = out["Ore"] * out["Costo Orario"]
     return out
 
-
 PERIODS = ["Tutto", "Ultimi 30 giorni", "Ultimi 90 giorni", "Anno corrente"]
-
 
 def apply_period(df, label):
     if label == "Tutto" or df.empty: return df.copy(), df.iloc[0:0].copy()
@@ -838,17 +748,14 @@ def apply_period(df, label):
     prev = df[df["Data"].between(prev_start, prev_end + pd.Timedelta(days=1))].copy()
     return cur, prev
 
-
 def series_of(df, col, n=30):
     if df.empty or df["Data"].isna().all(): return []
     return df.dropna(subset=["Data"]).groupby("Data")[col].sum().sort_index().tail(n).tolist()
-
 
 def totals(df):
     if df.empty: return dict(revenue=0.0, costs=0.0, margin=0.0, labor_h=0.0, vehicle_h=0.0, tonnes=0.0)
     return dict(revenue=safe_sum(df["Ricavi"]), costs=safe_sum(df["Costo Totale"]), margin=safe_sum(df["Margine"]),
                 labor_h=safe_sum(df["Ore Uomo"]), vehicle_h=safe_sum(df["Ore Mezzi"]), tonnes=safe_sum(df["Tonnellate"]))
-
 
 def spark(values, color=MOSS, w=120, h=36, stroke=2.0):
     v = [float(x) for x in values if pd.notna(x)]
@@ -863,7 +770,6 @@ def spark(values, color=MOSS, w=120, h=36, stroke=2.0):
             f'<polygon points="0,{h} {line} {w},{h}" fill="url(#{gid})"/>'
             f'<polyline points="{line}" fill="none" stroke="{color}" stroke-width="{stroke}" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>')
 
-
 def delta_badge(cur, prev, good_up=True):
     if not prev: return ""
     change = (cur - prev) / abs(prev) * 100
@@ -871,41 +777,30 @@ def delta_badge(cur, prev, good_up=True):
     arrow = "▲" if change >= 0 else "▼"
     return f'<span class="delta {"ok" if good else "bad"}">{arrow} {abs(change):.1f}%</span>'.replace(".", ",", 1)
 
-
 def page_head(title, subtitle):
     html(f'<div class="page-head"><div><div class="page-title">{title}</div><div class="page-sub">{subtitle}</div></div>'
          f'<div class="who"><i></i>{st.session_state.nome}</div></div>')
 
-
 def section(title, note=""):
     html(f'<div class="section-title">{title}</div>' + (f'<div class="section-note">{note}</div>' if note else ""))
 
-
 def chart_head(title, sub=""):
     html(f'<div class="chart-head"><div class="panel-head">{title}</div>' + (f'<div class="panel-sub">{sub}</div>' if sub else "") + '</div>')
-
 
 def stat_html(label, value, note="", spark_svg="", tone="", delta=""):
     return (f'<div class="stat {tone}"><div class="stat-label">{label}</div><div class="stat-value">{value}</div>'
             f'<div class="stat-note">{note}{delta}</div><div class="stat-spark">{spark_svg}</div></div>')
 
-
 def strip_html(cells, cols=None):
     body = "".join(f'<div class="cell"><div class="cell-label">{a}</div><div class="cell-value">{b}</div><div class="cell-note">{c}</div></div>' for a, b, c in cells)
     return f'<div class="strip" style="grid-template-columns:repeat({cols or len(cells)},1fr)">{body}</div>'
-
 
 def style_chart(chart, height=280):
     return (chart.properties(height=height, background="transparent").configure_view(strokeWidth=0)
             .configure_axis(labelColor=MUTE, titleColor=MUTE, gridColor="#E6ECE8", domainColor=LINE, tickColor=LINE, labelFont="IBM Plex Sans", titleFont="IBM Plex Sans", labelFontSize=12)
             .configure_legend(labelColor=INK, labelFont="IBM Plex Sans", labelFontSize=12, symbolType="circle"))
 
-
-def show_chart(chart):
-    if chart is None:
-        st.info("Nessun dato da mostrare."); return
-    sx(st.altair_chart, chart)
-
+def show_chart(chart): sx(st.altair_chart, chart)
 
 def trend_chart(df):
     d = df.dropna(subset=["Data"])
@@ -921,7 +816,6 @@ def trend_chart(df):
         tooltip=[alt.Tooltip("Data:T", format="%d/%m/%Y"), "Voce:N", alt.Tooltip("Euro:Q", format=",.2f")])
     return style_chart(chart, 290)
 
-
 def donut_chart(mix):
     d = pd.DataFrame({"Voce": list(mix.keys()), "Euro": list(mix.values())})
     d = d[d["Euro"] > 0]
@@ -932,38 +826,15 @@ def donut_chart(mix):
         tooltip=["Voce:N", alt.Tooltip("Euro:Q", format=",.2f")])
     return style_chart(chart, 250)
 
-
 def hbar_chart(d, label_col, value_col, title=None, signed=False, color=TIDE):
-    if d is None or d.empty: return None
+    if d.empty: return None
     enc_color = alt.condition(f"datum['{value_col}'] >= 0", alt.value(MOSS), alt.value(ALERT)) if signed else alt.value(color)
     chart = alt.Chart(d).mark_bar(cornerRadiusEnd=4, size=17).encode(
         y=alt.Y(f"{label_col}:N", sort="-x", title=None), x=alt.X(f"{value_col}:Q", title=title, axis=alt.Axis(format="~s")),
         color=enc_color, tooltip=[label_col, alt.Tooltip(f"{value_col}:Q", format=",.2f")])
     return style_chart(chart, max(120, 34 * len(d) + 30))
 
-
-def hours_chart(df):
-    """Ore previste e svolte per giorno (pagina Certificazioni)."""
-    d = df.dropna(subset=["Data Analisi"])
-    if d.empty: return None
-    g = (d.groupby(d["Data Analisi"].dt.normalize())[["Orario Previsto", "Durata"]].sum().reset_index()
-           .rename(columns={"Data Analisi": "Data", "Orario Previsto": "Previste", "Durata": "Svolte"})
-           .melt("Data", var_name="Voce", value_name="Ore"))
-    chart = alt.Chart(g).mark_bar(cornerRadiusEnd=3).encode(
-        x=alt.X("yearmonthdate(Data):T", title=None, axis=alt.Axis(format="%d/%m", labelOverlap=True)),
-        xOffset="Voce:N",
-        y=alt.Y("Ore:Q", title=None),
-        color=alt.Color("Voce:N", scale=alt.Scale(domain=["Previste", "Svolte"], range=["#B7C4BD", MOSS]), legend=alt.Legend(orient="top", title=None)),
-        tooltip=[alt.Tooltip("Data:T", format="%d/%m/%Y"), "Voce:N", alt.Tooltip("Ore:Q", format=",.2f")])
-    return style_chart(chart, 260)
-
-
-# ------------------------------------------------------------
-# Sessione e login
-# ------------------------------------------------------------
-for _key, _value in {"logged": False, "username": "", "nome": "", "ruolo": "", "allowed_subservices": [], "default_pwd": False,
-                     "cert_df": pd.DataFrame(), "cert_file": "", "cert_import_id": "", "cert_sig": "",
-                     "login_fails": 0, "login_block": 0.0}.items():
+for _key, _value in {"logged": False, "username": "", "nome": "", "ruolo": "", "allowed_subservices": [], "default_pwd": False, "cert_df": pd.DataFrame(), "cert_file": "", "cert_import_id": "", "cert_sig": ""}.items():
     if _key not in st.session_state: st.session_state[_key] = _value
 
 if not st.session_state.logged:
@@ -972,26 +843,16 @@ if not st.session_state.logged:
     with mid:
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-        wait = st.session_state.login_block - _time.time()
-        if wait > 0: st.warning(f"Troppi tentativi errati. Riprova tra {int(wait) + 1} secondi.")
-        if sx(st.button, "Accedi", type="primary", disabled=wait > 0):
+        if sx(st.button, "Accedi", type="primary"):
             users_df = read_users()
             match = users_df[users_df["username"].eq(username.strip())]
-            if match.empty or not check_password(match.iloc[0]["password"], password):
-                st.session_state.login_fails += 1
-                if st.session_state.login_fails >= 5:
-                    st.session_state.login_block = _time.time() + 30
-                    st.session_state.login_fails = 0
-                st.error("Username o password non corretti.")
+            if match.empty or not check_password(match.iloc[0]["password"], password): st.error("Username o password non corretti.")
             else:
                 row = match.iloc[0]
-                if needs_rehash(row["password"]):
+                if not str(row["password"]).startswith("pbkdf2$"):  
                     users_df.loc[match.index[0], "password"] = hash_password(password)
                     save_csv(users_df, FILES["users"])
-                st.session_state.update(logged=True, username=str(row["username"]), nome=str(row["nome"]), ruolo=str(row["ruolo"]),
-                                        allowed_subservices=split_access(row["autorizzazioni"]),
-                                        default_pwd=DEFAULT_PASSWORDS.get(str(row["username"])) == password,
-                                        login_fails=0, login_block=0.0)
+                st.session_state.update(logged=True, username=str(row["username"]), nome=str(row["nome"]), ruolo=str(row["ruolo"]), allowed_subservices=split_access(row["autorizzazioni"]), default_pwd=DEFAULT_PASSWORDS.get(str(row["username"])) == password)
                 st.rerun()
     st.stop()
 
@@ -1002,7 +863,6 @@ services_df = read_services()
 personnel_detail = read_personnel()
 vehicle_detail = read_vehicle_detail()
 
-
 def cert_pool():
     archive, current = read_cert_rows(), st.session_state.cert_df
     if current is None or current.empty: return archive
@@ -1011,15 +871,13 @@ def cert_pool():
     pool["ID Import"] = pool["ID Import"].fillna("")
     return pool.drop_duplicates(subset="Chiave", keep="first").reset_index(drop=True)
 
-
 def cert_visible(pool):
     if is_admin() or pool.empty: return pool
     parts = [rows_for_subservice(pool, s) for s in st.session_state.allowed_subservices]
     return pd.concat(parts).drop_duplicates(subset="Chiave") if parts else pool.iloc[0:0]
 
-
-PAGE_LABELS = {"Dashboard": "Dashboard", "Ingombranti": "Importa Ingombranti", "Consuntivazione": "Nuovo consuntivo", "Certificazioni": "Certificazioni Standard", "Economico": "Centro di costo", "Anagrafiche": "Anagrafiche", "Tariffari": "Tariffe e contratti", "Accessi": "Accessi", "Account": "Il mio account"}
-pages = ["Dashboard", "Ingombranti", "Consuntivazione", "Certificazioni", "Economico"] + (["Anagrafiche", "Tariffari", "Accessi"] if is_admin() else []) + ["Account"]
+PAGE_LABELS = {"Dashboard": "Dashboard", "Ingombranti": "Importa Ingombranti", "Consuntivazione": "Nuovo consuntivo", "Certificazioni": "Certificazioni Standard", "Economico": "Centro di costo", "Anagrafiche": "Anagrafiche", "Tariffari": "Tariffe e contratti", "Accessi": "Accessi"}
+pages = ["Dashboard", "Ingombranti", "Consuntivazione", "Certificazioni", "Economico"] + (["Anagrafiche", "Tariffari", "Accessi"] if is_admin() else [])
 
 with st.sidebar:
     html('<div class="brand"><div class="brand-name">Cristoforo<b>.</b></div><div class="brand-sub">Control Room</div></div><div class="nav-title">Menu</div>')
@@ -1042,12 +900,9 @@ PAGE_META = {
     "Anagrafiche": ("Anagrafiche", "Operatori con contratto e livello, mezzi con tipologia."),
     "Tariffari": ("Tariffe e contratti", "Gestisci costo orario personale, costo orario mezzi e Ricavo a Tonnellata per comune."),
     "Accessi": ("Accessi", "Utenti, password e sottoservizi autorizzati."),
-    "Account": ("Il mio account", "Cambia la tua password di accesso."),
 }
 page_head(*PAGE_META[page])
 if st.session_state.get("flash"): st.success(st.session_state.pop("flash"))
-if st.session_state.get("default_pwd"):
-    st.warning("Stai usando la password iniziale: cambiala subito da «Il mio account».")
 
 # ============================================================
 # DASHBOARD
@@ -1096,14 +951,12 @@ if page == "Dashboard":
     with a:
         chart_head("Ricavi, costi e margine")
         ch = trend_chart(cur)
-        if ch is not None: show_chart(ch)
-        else: st.info("Servono consuntivi con data per mostrare l'andamento.")
+        show_chart(ch) if ch is not None else st.info("Servono consuntivi con data per mostrare l'andamento.")
     with b:
         chart_head("Da cosa sono fatti i costi")
         mix = {"Personale": safe_sum(cur["Costo Personale"]) if not cur.empty else 0, "Mezzi": safe_sum(cur["Costo Mezzi"]) if not cur.empty else 0, "Overhead": safe_sum(cur["Overhead"]) if not cur.empty else 0}
         ch = donut_chart(mix)
-        if ch is not None: show_chart(ch)
-        else: st.info("Nessun costo nel periodo.")
+        show_chart(ch) if ch is not None else st.info("Nessun costo nel periodo.")
 
     section("Ultimi consuntivi")
     if cur.empty: st.info("Nessun consuntivo da mostrare.")
@@ -1113,203 +966,148 @@ if page == "Dashboard":
         sx(st.dataframe, table, hide_index=True, column_config={"Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"), "Ricavi": st.column_config.NumberColumn(format="€ %.2f"), "Costi": st.column_config.NumberColumn(format="€ %.2f"), "Margine": st.column_config.NumberColumn(format="€ %.2f"), "Margine %": st.column_config.NumberColumn(format="%.1f%%")})
 
 # ============================================================
-# MODULO INGOMBRANTI
+# MODULO INGOMBRANTI (LETURA FLUIDA CON PROVINCIA)
 # ============================================================
 elif page == "Ingombranti":
-    ING_SUBS = {norm_txt(s): s for s in SERVICE_TREE["Ingombranti"]}
-
-    def canon_comune(value):
-        """Riporta il comune al nome dell'albero servizi (Prato, Mugello, ...), se riconosciuto."""
-        return ING_SUBS.get(norm_txt(value), txt(value))
-
-    def read_ingombranti(uploaded):
-        """Cerca automaticamente foglio e riga di intestazione del file Ingombranti."""
-        excel = pd.ExcelFile(uploaded)
-        best, best_score = None, -1
-        for sheet in excel.sheet_names:
-            for header in range(0, 8):
-                try: sample = pd.read_excel(excel, sheet_name=sheet, header=header, nrows=5)
-                except Exception: continue
-                low = [str(c).lower().replace("\n", " ").strip() for c in sample.columns]
-                score = sum([any(x == "data" for x in low), any("comune" in x for x in low), any("kg" in x for x in low),
-                             any("h/turno" in x for x in low), any("tipologia mezzo" in x for x in low)])
-                if score > best_score: best, best_score = (sheet, header), score
-        if best is None or best_score < 2: raise ValueError("Non trovo le colonne del file Ingombranti (Data, Comune, Kg...).")
-        return pd.read_excel(excel, sheet_name=best[0], header=best[1])
-
-    def ing_sig(d, sub, ton, ore):
-        return f"{pd.Timestamp(d):%Y-%m-%d}|{norm_txt(sub)}|{float(ton):.4f}|{float(ore):.4f}"
-
     st.info("Carica il file Excel mensile della Raccolta Ingombranti. Il sistema individuerà in automatico Provincia, Comune e Kg a prescindere dal loro ordine nel file.")
     col_a, col_b = st.columns([1, 1])
-
+    
     file_ing = col_a.file_uploader("Carica file Ingombranti", type=["xlsx", "xls"])
     selected_ccnl = col_b.selectbox("Scegli il CCNL di Riferimento per questo file", options=list(CONTRACTS.keys()), help="Indica a quale listino appartengono i livelli scritti nel file (es. D1, B2).")
 
     if file_ing:
         try:
-            df_ing = read_ingombranti(file_ing)
-
-            cols_lower = {c: str(c).lower().replace("\n", " ").strip() for c in df_ing.columns}
-            rename_map, used_targets = {}, set()
+            df_ing = pd.read_excel(file_ing, header=3)
+            
+            # Pulizia e mapping colonne
+            cols_lower = {c: str(c).lower().replace('\n', ' ').strip() for c in df_ing.columns}
+            rename_map = {}
             for orig, lower in cols_lower.items():
-                target = None
-                if lower == "data": target = "Data"
-                elif "comune" in lower and "codice" not in lower: target = "Comune"
-                elif "provincia" in lower: target = "Provincia"
-                elif lower == "autista" or ("autista" in lower and "nr" not in lower): target = "Livello_Autista"
-                elif "supporto" in lower: target = "Livello_Supporto"
-                elif "tipologia mezzo" in lower: target = "Mezzo"
-                elif "h/turno" in lower: target = "Ore"
-                elif "quantità" in lower and "kg" in lower: target = "Kg"
-                if target and target not in used_targets:
-                    rename_map[orig] = target; used_targets.add(target)
-            df_ing = df_ing.rename(columns=rename_map)
+                if lower == 'data': rename_map[orig] = 'Data'
+                elif 'comune' in lower: rename_map[orig] = 'Comune'
+                elif 'provincia' in lower: rename_map[orig] = 'Provincia'
+                elif lower == 'autista' or 'autista' in lower and 'nr' not in lower: rename_map[orig] = 'Livello_Autista'
+                elif 'supporto' in lower: rename_map[orig] = 'Livello_Supporto'
+                elif 'tipologia mezzo' in lower: rename_map[orig] = 'Mezzo'
+                elif 'h/turno' in lower: rename_map[orig] = 'Ore'
+                elif 'quantità' in lower and 'kg' in lower: rename_map[orig] = 'Kg'
+                elif 'tipo di servizio' in lower: rename_map[orig] = 'Servizio'
 
-            required = ["Data", "Comune", "Kg", "Ore", "Mezzo", "Livello_Autista"]
-            missing_cols = [c for c in required if c not in df_ing.columns]
-            if "Data" in missing_cols or "Comune" in missing_cols:
-                st.error(f"Colonne non trovate: {', '.join(missing_cols)}. Controlla il formato del file."); st.stop()
-            if missing_cols:
-                st.warning(f"Colonne non trovate: {', '.join(missing_cols)}. Le righe risulteranno con valori a zero e saranno segnalate come anomalie.")
-
-            df_ing["Data"] = df_ing["Data"].apply(parse_date)
-            df_ing = df_ing.dropna(subset=["Data", "Comune"])
-            df_ing = df_ing[df_ing["Comune"].map(txt).ne("")].copy()
-            df_ing["Comune"] = df_ing["Comune"].map(canon_comune)
-
-            if not is_admin():
-                allowed = st.session_state.allowed_subservices
-                in_scope = df_ing["Comune"].isin(allowed)
-                if (~in_scope).any():
-                    st.warning(f"{int((~in_scope).sum())} righe riguardano comuni non autorizzati per il tuo profilo e sono state escluse.")
-                df_ing = df_ing[in_scope].copy()
-
-            unknown_comuni = sorted({c for c in df_ing["Comune"] if c not in SERVICE_TREE["Ingombranti"]})
-            if unknown_comuni and is_admin():
-                st.warning("Comuni non presenti tra i sottoservizi Ingombranti (li vedrà solo la Direzione): " + ", ".join(unknown_comuni))
-
+            df_ing.rename(columns=rename_map, inplace=True)
+            
+            if 'Data' not in df_ing.columns or 'Comune' not in df_ing.columns:
+                st.error("Errore: Impossibile trovare le colonne 'Data' e 'Comune' nel file. Controlla il formato.")
+                st.stop()
+                
+            df_ing = df_ing.dropna(subset=['Data', 'Comune'])
+            
             if df_ing.empty:
-                st.warning("Il file non contiene righe valide con Data e Comune.")
+                st.warning("Il file non contiene righe valide con Date e Comuni.")
             else:
                 st.success(f"File letto con successo! Elaborazione di {len(df_ing)} servizi ingombranti.")
-
+                
                 risultati = []
                 overhead_pct = general_rate(tariffs, "Overhead", 15.0)
 
                 for _, row in df_ing.iterrows():
-                    comune = txt(row.get("Comune"))
-                    provincia = txt(row.get("Provincia"))
-                    data = row.get("Data")
-
-                    kg = parse_num(row.get("Kg", 0), thousands=True)
+                    comune = str(row.get('Comune', '')).strip()
+                    provincia = str(row.get('Provincia', '')).strip() 
+                    data = pd.to_datetime(row.get('Data'), errors='coerce')
+                    
+                    kg = parse_num(row.get('Kg', 0))
                     ton = kg / 1000.0
-
+                    
                     ricavo_ton = rate_lookup(tariffs, "Ricavo Tonnellata", comune, "Ingombranti")
                     if ricavo_ton is None: ricavo_ton = 0.0
                     ricavo_totale = ton * ricavo_ton
-
-                    ore_dec = parse_hours(row.get("Ore", 0))
-
-                    liv_aut = txt(row.get("Livello_Autista"))
-                    liv_sup = txt(row.get("Livello_Supporto"))
-                    tipo_mezzo = txt(row.get("Mezzo"))
-                    n_addetti = (1 if liv_aut else 0) + (1 if liv_sup else 0)
-
-                    costo_h_aut = labor_rate(tariffs, selected_ccnl, liv_aut) if liv_aut else 0.0
+                    
+                    ore_str = row.get('Ore', 0)
+                    ore_dec = parse_hours(ore_str)
+                    
+                    liv_aut = str(row.get('Livello_Autista', '')).strip()
+                    liv_sup = str(row.get('Livello_Supporto', '')).strip()
+                    tipo_mezzo = str(row.get('Mezzo', '')).strip()
+                    
+                    costo_h_aut = labor_rate(tariffs, selected_ccnl, liv_aut)
                     costo_h_sup = labor_rate(tariffs, selected_ccnl, liv_sup) if liv_sup else 0.0
-                    costo_h_mezzo = vehicle_rate(tariffs, tipo_mezzo) if tipo_mezzo else 0.0
-
-                    costo_h_pers_totale = costo_h_aut + costo_h_sup
-                    costo_personale = costo_h_pers_totale * ore_dec
+                    costo_h_mezzo = vehicle_rate(tariffs, tipo_mezzo)
+                    
+                    costo_personale = (costo_h_aut + costo_h_sup) * ore_dec
                     costo_mezzo = costo_h_mezzo * ore_dec
                     overhead = (costo_personale + costo_mezzo) * overhead_pct / 100.0
                     costo_totale = costo_personale + costo_mezzo + overhead
+                    
                     margine = ricavo_totale - costo_totale
+                    
+                    anomalia = 0
+                    if ricavo_ton == 0.0 or costo_h_aut == 0.0 or (liv_sup and costo_h_sup == 0.0) or costo_h_mezzo == 0.0:
+                        anomalia = 1
 
-                    anomalia = int(ricavo_ton == 0.0 or costo_h_aut == 0.0 or (bool(liv_sup) and costo_h_sup == 0.0)
-                                   or costo_h_mezzo == 0.0 or ore_dec <= 0 or kg <= 0)
+                    nota_servizio = f"Provincia: {provincia}" if provincia and provincia != 'nan' else ""
 
                     risultati.append({
                         "Data": data.date() if pd.notnull(data) else None,
-                        "Provincia": provincia,
+                        "Servizio": "Ingombranti",
                         "Comune": comune,
+                        "Provincia": provincia,
                         "Mezzo": tipo_mezzo,
-                        "Costo h Mezzo": costo_h_mezzo,
-                        "Addetti": " + ".join(x for x in [liv_aut, liv_sup] if x),
-                        "Costo h Pers.": costo_h_pers_totale,
+                        "Addetti": f"{liv_aut} + {liv_sup}" if liv_sup and liv_sup != 'nan' else liv_aut,
                         "Ore": ore_dec,
                         "Ton": ton,
                         "Ricavo Tonnellata": ricavo_ton,
                         "Ricavi Totali": ricavo_totale,
                         "Costi Diretti": costo_personale + costo_mezzo,
                         "Margine": margine,
-                        "Anomalia": "⚠" if anomalia else "",
                         "Anomalie": anomalia,
-                        "Note": f"Provincia: {provincia}" if provincia else "",
-                        "Ore Uomo": ore_dec * max(n_addetti, 1),
+                        "Note": nota_servizio,
                         "raw_costo_pers": costo_personale,
                         "raw_costo_mezzo": costo_mezzo,
                         "raw_overhead": overhead,
                         "raw_costo_tot": costo_totale,
-                        "Servizio": "Ingombranti",
                     })
 
                 df_res = pd.DataFrame(risultati)
-
+                
                 st.subheader("Anteprima Elaborazione Automatica")
-                view_df = df_res.drop(columns=["raw_costo_pers", "raw_costo_mezzo", "raw_overhead", "raw_costo_tot", "Servizio", "Note", "Anomalie", "Ore Uomo"])
-
+                view_df = df_res.copy()
+                view_df.drop(columns=['raw_costo_pers', 'raw_costo_mezzo', 'raw_overhead', 'raw_costo_tot', 'Servizio'], inplace=True)
+                
                 sx(st.dataframe, view_df, hide_index=True, column_config={
                     "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
                     "Ore": st.column_config.NumberColumn(format="%.2f"),
                     "Ton": st.column_config.NumberColumn(format="%.2f"),
-                    "Costo h Mezzo": st.column_config.NumberColumn(format="€ %.2f"),
-                    "Costo h Pers.": st.column_config.NumberColumn(format="€ %.2f"),
                     "Ricavo Tonnellata": st.column_config.NumberColumn(format="€ %.2f"),
                     "Ricavi Totali": st.column_config.NumberColumn(format="€ %.2f"),
                     "Costi Diretti": st.column_config.NumberColumn(format="€ %.2f"),
-                    "Margine": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Margine": st.column_config.NumberColumn(format="€ %.2f")
                 })
-
-                anomalie_tot = int(df_res["Anomalie"].sum())
+                
+                anomalie_tot = df_res['Anomalie'].sum()
                 if anomalie_tot > 0:
-                    st.warning(f"ATTENZIONE: {anomalie_tot} righe (segnate con ⚠) hanno tariffe, ore o Kg a zero. Per le tariffe, copia il nome esatto del mezzo o dell'addetto e inserisci un costo nella scheda 'Tariffe e contratti'.")
-
-                # controllo duplicati rispetto a quanto già salvato
-                ex = services_df[services_df["Servizio"].eq("Ingombranti")].dropna(subset=["Data"])
-                existing = {ing_sig(r["Data"], r["Sottoservizio"], r["Tonnellate"], r["Ore Mezzi"]) for _, r in ex.iterrows()}
-                already = sum(ing_sig(r["Data"], r["Comune"], r["Ton"], r["Ore"]) in existing for _, r in df_res.iterrows())
-                if already:
-                    st.info(f"{already} righe risultano già salvate e verranno saltate per evitare duplicati.")
-
+                    st.warning(f"ATTENZIONE: {anomalie_tot} righe presentano tariffe mancanti (Ricavo a tonnellata per quel Comune o Costo Orario per quei Livelli/Mezzi). Vai nel menu 'Tariffe e contratti' per configurarle prima di salvare.")
+                
                 if sx(st.button, "Salva tutti come Centri di Costo", type="primary"):
-                    rows_to_save, skipped = [], 0
+                    rows_to_save = []
                     batch_id = datetime.now().strftime("%Y%m%d%H%M%S")
-                    seen = set(existing)
-
+                    
                     for i, r in df_res.iterrows():
-                        sig_row = ing_sig(r["Data"], r["Comune"], r["Ton"], r["Ore"])
-                        if sig_row in seen:
-                            skipped += 1; continue
-                        seen.add(sig_row)
                         cid = f"CC-ING-{batch_id}-{i}"
                         rows_to_save.append({
-                            "ID": cid, "Data": r["Data"], "Servizio": r["Servizio"], "Sottoservizio": r["Comune"],
+                            "ID": cid, "Data": r["Data"], "Servizio": r["Servizio"], "Sottoservizio": r["Comune"], 
                             "Centro di Costo": centro_costo(r["Servizio"], r["Comune"]),
-                            "Tonnellate": r["Ton"], "Ricavi": r["Ricavi Totali"],
-                            "Costo Personale": r["raw_costo_pers"], "Costo Mezzi": r["raw_costo_mezzo"],
-                            "Overhead": r["raw_overhead"], "Costo Totale": r["raw_costo_tot"],
-                            "Margine": r["Margine"], "Ore Uomo": r["Ore Uomo"],
-                            "Ore Mezzi": r["Ore"], "Note": (r["Note"] + " | " if r["Note"] else "") + f"Mezzo: {r['Mezzo']}",
-                            "Creato Da": st.session_state.nome, "Periodo Da": r["Data"], "Periodo A": r["Data"],
-                            "Anomalie": r["Anomalie"],
+                            "Tonnellate": r["Ton"], "Ricavi": r["Ricavi Totali"], 
+                            "Costo Personale": r["raw_costo_pers"], "Costo Mezzi": r["raw_costo_mezzo"], 
+                            "Overhead": r["raw_overhead"], "Costo Totale": r["raw_costo_tot"], 
+                            "Margine": r["Margine"], "Ore Uomo": r["Ore"] * (2 if "+" in r["Addetti"] else 1), 
+                            "Ore Mezzi": r["Ore"], "Note": r["Note"],
+                            "Creato Da": st.session_state.nome, "Periodo Da": r["Data"], "Periodo A": r["Data"], 
+                            "Anomalie": r["Anomalie"]
                         })
-
-                    if rows_to_save: append_rows("services", read_services, pd.DataFrame(rows_to_save))
-                    st.session_state.flash = f"Completato! {len(rows_to_save)} centri di costo ingombranti salvati" + (f", {skipped} già presenti e saltati." if skipped else ".")
+                        
+                    append_rows("services", read_services, pd.DataFrame(rows_to_save))
+                    st.session_state.flash = f"Completato! {len(rows_to_save)} centri di costo ingombranti salvati nel sistema."
                     st.rerun()
-
+                    
         except Exception as e:
             st.error(f"Errore durante l'elaborazione del file: {e}")
 
@@ -1339,18 +1137,12 @@ elif page == "Consuntivazione":
     only_cert = o1.radio("Righe da includere", ["Solo certificate", "Tutte le righe"], index=0 if has_cert else 1, horizontal=True) == "Solo certificate"
     reuse = o2.checkbox("Includi anche righe già consuntivate", value=False)
     step_status = in_period[in_period["Stato"].map(is_certified)] if only_cert and not in_period.empty else in_period
-
-    # Righe già consuntivate: si usa la chiave univoca della riga; per i vecchi consuntivi
-    # (salvati senza chiave) si ripiega sull'ID della certificazione.
-    used_keys = set(personnel_detail["Chiave"]) | set(vehicle_detail["Chiave"]); used_keys.discard("")
-    legacy_ids = (set(personnel_detail.loc[personnel_detail["Chiave"].eq(""), "Certificazione ID"])
-                  | set(vehicle_detail.loc[vehicle_detail["Chiave"].eq(""), "Certificazione ID"])); legacy_ids.discard("")
-    if reuse or step_status.empty: scope = step_status
-    else: scope = step_status[~(step_status["Chiave"].isin(used_keys) | step_status["ID"].isin(legacy_ids))]
+    used = set(personnel_detail["Certificazione ID"]) | set(vehicle_detail["Certificazione ID"]); used.discard("")
+    scope = step_status if reuse or step_status.empty else step_status[~step_status["ID"].isin(used)]
 
     funnel = [("Nel file", len(pool)), (f"Per {subservice}", len(by_sub)), (f"Per {service}", len(pre)), ("Nel periodo", len(in_period)), ("Con lo stato scelto", len(step_status)), ("Ancora da consuntivare", len(scope))]
     html('<div class="funnel">' + "".join(f"<span>{a}: <b>{b}</b></span>" for a, b in funnel) + "</div>")
-    if pool.empty: st.warning("Non c'è nessuna certificazione. Importala da Certificazioni Standard.")
+    if pool.empty: st.warning("Non c'è nessuna certificazione. Importala da Certificazioni e ore.")
     if not scope.empty and (scope["Attribuzione"] == "Solo sottoservizio").any(): st.caption("Alcune righe collegate solo dal sottoservizio.")
 
     manual = False
@@ -1371,14 +1163,14 @@ elif page == "Consuntivazione":
     section("Personale", "Ore uomo = durata per operatore.")
     people_rows = expand_people(scope, operators) if not scope.empty else pd.DataFrame([{**{c: "" for c in PEOPLE_COLS}, "Ore": 0.0, "Stato Match": "MANUALE"}])
     people_rows["Data"] = pd.to_datetime(people_rows["Data"], errors="coerce").dt.strftime("%Y-%m-%d")
-    edited_people = sx(st.data_editor, people_rows, num_rows="dynamic", hide_index=True, key=f"pe_{sig}", disabled=["Certificazione ID", "Stato Match"], column_config={"Contratto": st.column_config.SelectboxColumn("Contratto", options=[""] + list(CONTRACTS)), "Livello": st.column_config.SelectboxColumn("Livello", options=[""] + ALL_LEVELS), "Ore": st.column_config.NumberColumn("Ore", min_value=0.0, step=0.25, format="%.2f"), "Data": None, "Inizio": None, "Fine": None, "Chiave": None})
+    edited_people = sx(st.data_editor, people_rows, num_rows="dynamic", hide_index=True, key=f"pe_{sig}", disabled=["Certificazione ID", "Stato Match"], column_config={"Contratto": st.column_config.SelectboxColumn("Contratto", options=[""] + list(CONTRACTS)), "Livello": st.column_config.SelectboxColumn("Livello", options=[""] + ALL_LEVELS), "Ore": st.column_config.NumberColumn("Ore", min_value=0.0, step=0.25, format="%.2f"), "Data": None, "Inizio": None, "Fine": None})
     labor = price_people(edited_people, tariffs)
 
     section("Mezzi")
     vehicle_types = sorted(set(DEFAULT_VEHICLE_TYPES + tariffs.loc[tariffs["Tipo"].str.lower().eq("mezzo"), "Livello_o_Tipo"].astype(str).tolist()))
     veh_rows = expand_vehicles(scope, vehicles) if not scope.empty else pd.DataFrame([{**{c: "" for c in VEHICLE_COLS}, "Ore": 0.0, "Stato Match": "MANUALE"}])
     veh_rows["Data"] = pd.to_datetime(veh_rows["Data"], errors="coerce").dt.strftime("%Y-%m-%d")
-    edited_veh = sx(st.data_editor, veh_rows, num_rows="dynamic", hide_index=True, key=f"ve_{sig}", disabled=["Certificazione ID", "Stato Match"], column_config={"Tipo": st.column_config.SelectboxColumn("Tipo mezzo", options=[""] + vehicle_types), "Ore": st.column_config.NumberColumn("Ore", min_value=0.0, step=0.25, format="%.2f"), "Data": None, "Chiave": None})
+    edited_veh = sx(st.data_editor, veh_rows, num_rows="dynamic", hide_index=True, key=f"ve_{sig}", disabled=["Certificazione ID", "Stato Match"], column_config={"Tipo": st.column_config.SelectboxColumn("Tipo mezzo", options=[""] + vehicle_types), "Ore": st.column_config.NumberColumn("Ore", min_value=0.0, step=0.25, format="%.2f"), "Data": None})
     veh = price_vehicles(edited_veh, tariffs)
 
     labor_cost, vehicle_cost = safe_sum(labor["Costo Totale"]), safe_sum(veh["Costo Totale"])
@@ -1405,12 +1197,11 @@ elif page == "Consuntivazione":
     if sx(st.button, "Salva centro di costo", type="primary", disabled=not can_save):
         cid = "CC-" + datetime.now().strftime("%Y%m%d%H%M%S%f"); end = pd.Timestamp(d1)
         append_rows("services", read_services, pd.DataFrame([{"ID": cid, "Data": end, "Servizio": service, "Sottoservizio": subservice, "Centro di Costo": centro_costo(service, subservice), "Tonnellate": tonnage, "Ricavi": revenue, "Costo Personale": labor_cost, "Costo Mezzi": vehicle_cost, "Overhead": overhead, "Costo Totale": total_cost, "Margine": margin, "Ore Uomo": labor_h, "Ore Mezzi": vehicle_h, "Note": notes, "Creato Da": st.session_state.nome, "Periodo Da": pd.Timestamp(d0), "Periodo A": end, "Anomalie": missing}]))
-
         def row_date(v):
             d = parse_date(v)
             return end if pd.isna(d) else d
-        append_rows("personnel", read_personnel, pd.DataFrame([{"ID Consuntivo": cid, "Certificazione ID": txt(r.get("Certificazione ID")), "Data": row_date(r.get("Data")), "Servizio": service, "Sottoservizio": subservice, "Matricola": txt(r.get("Matricola")), "Operatore": txt(r.get("Operatore")), "Contratto": txt(r.get("Contratto")), "Livello": txt(r.get("Livello")), "Ore": float(r["Ore"]), "Costo Orario": float(r["Costo Orario"]), "Costo Totale": float(r["Costo Totale"]), "Stato Match": txt(r.get("Stato Match")), "Chiave": txt(r.get("Chiave"))} for _, r in labor.iterrows()]))
-        append_rows("vehicle_detail", read_vehicle_detail, pd.DataFrame([{"ID Consuntivo": cid, "Certificazione ID": txt(r.get("Certificazione ID")), "Data": row_date(r.get("Data")), "Servizio": service, "Sottoservizio": subservice, "Targa": txt(r.get("Targa")), "Attrezzatura": txt(r.get("Attrezzatura")), "Tipo": txt(r.get("Tipo")), "Ore": float(r["Ore"]), "Costo Orario": float(r["Costo Orario"]), "Costo Totale": float(r["Costo Totale"]), "Stato Match": txt(r.get("Stato Match")), "Chiave": txt(r.get("Chiave"))} for _, r in veh.iterrows()]))
+        append_rows("personnel", read_personnel, pd.DataFrame([{"ID Consuntivo": cid, "Certificazione ID": txt(r.get("Certificazione ID")), "Data": row_date(r.get("Data")), "Servizio": service, "Sottoservizio": subservice, "Matricola": txt(r.get("Matricola")), "Operatore": txt(r.get("Operatore")), "Contratto": txt(r.get("Contratto")), "Livello": txt(r.get("Livello")), "Ore": float(r["Ore"]), "Costo Orario": float(r["Costo Orario"]), "Costo Totale": float(r["Costo Totale"]), "Stato Match": txt(r.get("Stato Match"))} for _, r in labor.iterrows()]))
+        append_rows("vehicle_detail", read_vehicle_detail, pd.DataFrame([{"ID Consuntivo": cid, "Certificazione ID": txt(r.get("Certificazione ID")), "Data": row_date(r.get("Data")), "Servizio": service, "Sottoservizio": subservice, "Targa": txt(r.get("Targa")), "Attrezzatura": txt(r.get("Attrezzatura")), "Tipo": txt(r.get("Tipo")), "Ore": float(r["Ore"]), "Costo Orario": float(r["Costo Orario"]), "Costo Totale": float(r["Costo Totale"]), "Stato Match": txt(r.get("Stato Match"))} for _, r in veh.iterrows()]))
         st.session_state.flash = f"Centro di costo {cid} salvato."; st.rerun()
 
 elif page == "Certificazioni":
@@ -1422,10 +1213,7 @@ elif page == "Certificazioni":
     if uploaded is not None:
         sig = f"{uploaded.name}|{uploaded.size}|{mode}"
         if st.session_state.cert_sig != sig:
-            try:
-                st.session_state.cert_df = normalize_certification(load_uploaded_raw(uploaded), mode)
-                st.session_state.cert_file, st.session_state.cert_sig = uploaded.name, sig
-                st.session_state.cert_import_id = "IMP-" + datetime.now().strftime("%Y%m%d%H%M%S")
+            try: st.session_state.cert_df = normalize_certification(load_uploaded_raw(uploaded), mode); st.session_state.cert_file, st.session_state.cert_sig = uploaded.name, sig; st.session_state.cert_import_id = "IMP-" + datetime.now().strftime("%Y%m%d%H%M%S")
             except Exception as exc: st.error(f"Errore file: {exc}")
 
     current = st.session_state.cert_df
@@ -1449,11 +1237,9 @@ elif page == "Certificazioni":
             n = f'<div class="check-n">{c["n"]}</div>' if c["n"] else '<span class="chip ok">OK</span>'
             html(f'<div class="check {c["sev"]}"><div><div class="check-title">{c["name"]}</div><div class="check-msg">{c["msg"]}</div></div><div style="margin-left:auto">{n}</div></div>')
             if c["name"] in details:
-                with st.expander("Vedi righe"): sx(st.dataframe, details[c["name"]], hide_index=True)
+                with st.expander(f'Vedi righe'): sx(st.dataframe, details[c["name"]], hide_index=True)
         chart_head("Ore previste e svolte")
-        ch = hours_chart(source)
-        if ch is not None: show_chart(ch)
-        else: st.info("Servono date.")
+        ch = hours_chart(source); show_chart(ch) if ch is not None else st.info("Servono date.")
     with tab_rows:
         view = source[CERT_COLUMNS].copy()
         for col in ["Data Pianificazione", "Data Svolgimento"]: view[col] = pd.to_datetime(view[col], errors="coerce").dt.strftime("%d/%m/%Y")
@@ -1485,7 +1271,6 @@ elif page == "Economico":
     sub_filter = b.selectbox("Sottoservizio", ["Tutti"] + list(subs))
     if service_filter != "Tutti": df = df[df["Servizio"].eq(service_filter)]
     if sub_filter != "Tutti": df = df[df["Sottoservizio"].eq(sub_filter)]
-    if df.empty: st.info("Nessun consuntivo per i filtri scelti."); st.stop()
 
     def scoped(detail):
         d = authorized(detail)
@@ -1536,21 +1321,12 @@ elif page == "Anagrafiche":
 
 elif page == "Tariffari":
     t1, t2, t3, t4 = st.tabs(["Costi Personale", "Costi Mezzi", "Parametri Generali", "Ricavi a Tonnellata (Comuni)"])
-
     def save_group(kind, label, edited, force_contract=None):
-        edited = edited.copy().fillna("")
-        edited["Tipo"] = label
+        edited = edited.copy(); edited["Tipo"] = label
         if force_contract is not None: edited["Contratto"] = force_contract
-        edited["Costo_Orario"] = edited["Costo_Orario"].apply(parse_num)
-        edited["Attivo"] = edited["Attivo"].replace("", "SI")
-        # una sola tariffa attiva per la stessa voce (contratto + livello/tipo)
-        chk = edited.assign(_c=edited["Contratto"].map(norm_txt), _k=edited["Livello_o_Tipo"].map(norm_txt))
-        dup = chk[chk["Attivo"].eq("SI") & chk["_k"].ne("") & chk.duplicated(["_c", "_k"], keep=False)]
-        if not dup.empty:
-            st.error("Tariffe duplicate: " + ", ".join(sorted(set(dup["Livello_o_Tipo"].astype(str)))) + ". Lascia una sola riga attiva per voce.")
-            return
+        edited["Costo_Orario"] = edited["Costo_Orario"].apply(parse_num); edited["Attivo"] = edited["Attivo"].replace("", "SI").fillna("SI")
         current = read_tariffs()
-        save_csv(pd.concat([current[~current["Tipo"].str.lower().eq(kind)], edited.drop(columns=[]).fillna("")], ignore_index=True), FILES["tariffs"]); st.session_state.flash = "Tariffe aggiornate."; st.rerun()
+        save_csv(pd.concat([current[~current["Tipo"].str.lower().eq(kind)], edited.fillna("")], ignore_index=True), FILES["tariffs"]); st.session_state.flash = "Tariffe aggiornate."; st.rerun()
     with t1:
         edited = sx(st.data_editor, tariffs[tariffs["Tipo"].str.lower().eq("personale")], num_rows="dynamic", hide_index=True, column_config={"Tipo": None, "Contratto": st.column_config.SelectboxColumn("Contratto", options=list(CONTRACTS)), "Livello_o_Tipo": st.column_config.SelectboxColumn("Livello", options=ALL_LEVELS), "Costo_Orario": st.column_config.NumberColumn("Costo orario aziendale (€)", min_value=0.0, step=0.01, format="%.2f"), "Attivo": st.column_config.SelectboxColumn("Attivo", options=["SI", "NO"])})
         if sx(st.button, "Salva costi personale", type="primary", key="s1"): save_group("personale", "Personale", edited)
@@ -1566,17 +1342,12 @@ elif page == "Tariffari":
         if sx(st.button, "Salva Ricavi", type="primary", key="s4"): save_group("ricavo tonnellata", "Ricavo Tonnellata", edited, force_contract="Ingombranti")
 
 elif page == "Accessi":
-    section("Utenti e autorizzazioni", "Nella colonna autorizzazioni scrivi TUTTI oppure i sottoservizi separati da virgola (es. Prato, Campi).")
+    section("Utenti e autorizzazioni")
     users_now = read_users()
     edited = sx(st.data_editor, users_now, num_rows="dynamic", hide_index=True, key="users_editor", column_config={"password": None, "ruolo": st.column_config.SelectboxColumn("ruolo", options=["admin", "capocantiere"])})
     if sx(st.button, "Salva utenti", type="primary"):
         names = edited["username"].map(txt)
-        bad_access = {u: invalid_access(a) for u, a in zip(names, edited["autorizzazioni"]) if invalid_access(a)}
-        empty_access = [u for u, r, a in zip(names, edited["ruolo"], edited["autorizzazioni"]) if str(r).strip() == "capocantiere" and not split_access(a)]
         if names.eq("").any() or names.duplicated().any(): st.error("Controlla gli username inseriti.")
-        elif not edited["ruolo"].map(txt).eq("admin").any(): st.error("Deve restare almeno un utente con ruolo admin.")
-        elif bad_access: st.error("Sottoservizi non riconosciuti: " + "; ".join(f"{u}: {', '.join(v)}" for u, v in bad_access.items()) + f". Valori validi: {', '.join(ALL_SUBSERVICES)}.")
-        elif empty_access: st.error("Nessun sottoservizio valido per: " + ", ".join(empty_access) + ".")
         else:
             out = edited.fillna(""); no_pw = out["password"].map(txt).eq("")
             out.loc[no_pw, "password"] = [hash_password(secrets.token_urlsafe(12)) for _ in range(int(no_pw.sum()))]
@@ -1585,25 +1356,7 @@ elif page == "Accessi":
     p1, p2, p3 = st.columns([1, 1, 0.6])
     target = p1.selectbox("Utente", users_now["username"].tolist()); new_pw = p2.text_input("Nuova password", type="password"); p3.write("")
     if sx(p3.button, "Aggiorna password"):
-        if len(new_pw) < 8: st.error("Almeno 8 caratteri.")
+        if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-elif page == "Account":
-    section("Cambia la tua password")
-    old_pw = st.text_input("Password attuale", type="password")
-    new_pw1 = st.text_input("Nuova password (almeno 8 caratteri)", type="password")
-    new_pw2 = st.text_input("Ripeti la nuova password", type="password")
-    if sx(st.button, "Aggiorna password", type="primary"):
-        users_now = read_users()
-        idx = users_now.index[users_now["username"].eq(st.session_state.username)]
-        if len(idx) == 0 or not check_password(users_now.loc[idx[0], "password"], old_pw): st.error("La password attuale non è corretta.")
-        elif len(new_pw1) < 8: st.error("La nuova password deve avere almeno 8 caratteri.")
-        elif new_pw1 != new_pw2: st.error("Le due password non coincidono.")
-        elif new_pw1 == old_pw: st.error("La nuova password deve essere diversa da quella attuale.")
-        else:
-            users_now.loc[idx[0], "password"] = hash_password(new_pw1)
-            save_csv(users_now, FILES["users"])
-            st.session_state.default_pwd = False
-            st.session_state.flash = "Password aggiornata."; st.rerun()
-
-html(f'<div class="foot">Cristoforo Control Room {APP_VERSION}</div>')
+html('<div class="foot">Cristoforo Control Room V8.2</div>')
