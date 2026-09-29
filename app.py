@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.2
+# CRISTOFORO | CONTROL ROOM V8.1
 # Fix Colori Testo, Forzatura Tema Chiaro e Modulo Ingombranti
-# INSERIMENTO MATRICE 13 MEZZI IN TARIFFARIO
 # ============================================================
 import hashlib
 import hmac
@@ -59,13 +58,7 @@ SERVICE_TREE = {
 }
 ALL_SUBSERVICES = sorted({x for values in SERVICE_TREE.values() for x in values})
 
-# --- NUOVA MATRICE MEZZI UFFICIALE ---
-DEFAULT_VEHICLE_TYPES = [
-    "1. Porter", "2. Porter Costipatore", "3. 35qt Vasca", "4. 35qt Vasca Costipatore",
-    "5. 75qt Vasca Costipatore", "6. Monoscocca 10/12Qt", "7. 2 Assi 12/18mc",
-    "8. 3 Assi 21/27mc", "9. 4 Assi 28/32mc", "10. Semi-Rimorchio 42/48mc",
-    "11. 3 Assi Scarrabile", "12. 4 Assi Scarrabile", "13. 3 Assi Scarrabile con Caricatore"
-]
+DEFAULT_VEHICLE_TYPES = ["Leggero", "Furgone", "Compattatore", "Spazzatrice", "Scarrabile", "Pesante", "Speciale", "35 qt", "Vasca"]
 
 CONTRACTS = {
     "Servizi Ambientali - Utilitalia": [
@@ -75,21 +68,9 @@ CONTRACTS = {
 }
 ALL_LEVELS = sorted({lv for levels in CONTRACTS.values() for lv in levels})
 
-# Costi orari aziendali stimati di partenza (modificabili dal pannello)
 DEFAULT_VEHICLE_COSTS = {
-    "1. Porter": 15.0,
-    "2. Porter Costipatore": 16.5,
-    "3. 35qt Vasca": 20.0,
-    "4. 35qt Vasca Costipatore": 22.0,
-    "5. 75qt Vasca Costipatore": 28.0,
-    "6. Monoscocca 10/12Qt": 35.0,
-    "7. 2 Assi 12/18mc": 40.0,
-    "8. 3 Assi 21/27mc": 45.0,
-    "9. 4 Assi 28/32mc": 50.0,
-    "10. Semi-Rimorchio 42/48mc": 65.0,
-    "11. 3 Assi Scarrabile": 42.0,
-    "12. 4 Assi Scarrabile": 48.0,
-    "13. 3 Assi Scarrabile con Caricatore": 55.0
+    "Leggero": 15.0, "Furgone": 18.0, "35 qt": 22.0, "Vasca": 24.0, "Compattatore": 25.0, "Spazzatrice": 35.0,
+    "Scarrabile": 40.0, "Pesante": 45.0, "Speciale": 65.0,
 }
 
 DEFAULT_PASSWORDS = {"direzione": "admin", "resp_prato": "123", "resp_mantova": "456"}
@@ -966,20 +947,21 @@ if page == "Dashboard":
         sx(st.dataframe, table, hide_index=True, column_config={"Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"), "Ricavi": st.column_config.NumberColumn(format="€ %.2f"), "Costi": st.column_config.NumberColumn(format="€ %.2f"), "Margine": st.column_config.NumberColumn(format="€ %.2f"), "Margine %": st.column_config.NumberColumn(format="%.1f%%")})
 
 # ============================================================
-# MODULO INGOMBRANTI (LETURA FLUIDA CON PROVINCIA)
+# MODULO INGOMBRANTI
 # ============================================================
 elif page == "Ingombranti":
     st.info("Carica il file Excel mensile della Raccolta Ingombranti. Il sistema individuerà in automatico Provincia, Comune e Kg a prescindere dal loro ordine nel file.")
     col_a, col_b = st.columns([1, 1])
     
-    file_ing = col_a.file_uploader("Carica file Ingombranti", type=["xlsx", "xls"])
+    file_ing = col_a.file_uploader("Carica file Ingombranti (es. ingombranti agosto 2026_2.xlsx)", type=["xlsx", "xls"])
     selected_ccnl = col_b.selectbox("Scegli il CCNL di Riferimento per questo file", options=list(CONTRACTS.keys()), help="Indica a quale listino appartengono i livelli scritti nel file (es. D1, B2).")
 
     if file_ing:
         try:
+            # Leggiamo saltando le prime 3 righe come fatto sul file originale
             df_ing = pd.read_excel(file_ing, header=3)
             
-            # Pulizia e mapping colonne
+            # Puliamo i nomi delle colonne per fare un "match" sicuro (indipendente da a capi o spazi)
             cols_lower = {c: str(c).lower().replace('\n', ' ').strip() for c in df_ing.columns}
             rename_map = {}
             for orig, lower in cols_lower.items():
@@ -995,10 +977,12 @@ elif page == "Ingombranti":
 
             df_ing.rename(columns=rename_map, inplace=True)
             
+            # Controlliamo che il file abbia le colonne minime vitali
             if 'Data' not in df_ing.columns or 'Comune' not in df_ing.columns:
                 st.error("Errore: Impossibile trovare le colonne 'Data' e 'Comune' nel file. Controlla il formato.")
                 st.stop()
                 
+            # Filtriamo le righe valide
             df_ing = df_ing.dropna(subset=['Data', 'Comune'])
             
             if df_ing.empty:
@@ -1011,23 +995,28 @@ elif page == "Ingombranti":
 
                 for _, row in df_ing.iterrows():
                     comune = str(row.get('Comune', '')).strip()
-                    provincia = str(row.get('Provincia', '')).strip() 
+                    provincia = str(row.get('Provincia', '')).strip() # Estraiamo anche la Provincia!
                     data = pd.to_datetime(row.get('Data'), errors='coerce')
                     
+                    # Tonnellate
                     kg = parse_num(row.get('Kg', 0))
                     ton = kg / 1000.0
                     
+                    # Ricavo a Tonnellata per questo Comune
                     ricavo_ton = rate_lookup(tariffs, "Ricavo Tonnellata", comune, "Ingombranti")
                     if ricavo_ton is None: ricavo_ton = 0.0
                     ricavo_totale = ton * ricavo_ton
                     
+                    # Ore
                     ore_str = row.get('Ore', 0)
                     ore_dec = parse_hours(ore_str)
                     
+                    # Dati Personale e Mezzo
                     liv_aut = str(row.get('Livello_Autista', '')).strip()
                     liv_sup = str(row.get('Livello_Supporto', '')).strip()
                     tipo_mezzo = str(row.get('Mezzo', '')).strip()
                     
+                    # Calcolo Costi dal Tariffario
                     costo_h_aut = labor_rate(tariffs, selected_ccnl, liv_aut)
                     costo_h_sup = labor_rate(tariffs, selected_ccnl, liv_sup) if liv_sup else 0.0
                     costo_h_mezzo = vehicle_rate(tariffs, tipo_mezzo)
@@ -1039,10 +1028,12 @@ elif page == "Ingombranti":
                     
                     margine = ricavo_totale - costo_totale
                     
+                    # Anomalie (manca tariffa per comune o costo per livello/mezzo)
                     anomalia = 0
                     if ricavo_ton == 0.0 or costo_h_aut == 0.0 or (liv_sup and costo_h_sup == 0.0) or costo_h_mezzo == 0.0:
                         anomalia = 1
 
+                    # Salviamo la provincia all'interno delle Note
                     nota_servizio = f"Provincia: {provincia}" if provincia and provincia != 'nan' else ""
 
                     risultati.append({
@@ -1068,6 +1059,7 @@ elif page == "Ingombranti":
 
                 df_res = pd.DataFrame(risultati)
                 
+                # Visualizzazione dell'Anteprima
                 st.subheader("Anteprima Elaborazione Automatica")
                 view_df = df_res.copy()
                 view_df.drop(columns=['raw_costo_pers', 'raw_costo_mezzo', 'raw_overhead', 'raw_costo_tot', 'Servizio'], inplace=True)
@@ -1359,4 +1351,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.2</div>')
+html('<div class="foot">Cristoforo Control Room V8.1</div>')
