@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.1
-# Fix Colori Testo, Forzatura Tema Chiaro e Modulo Ingombranti
+# CRISTOFORO | CONTROL ROOM V8
+# Completo al 100%: Import Ingombranti intelligente, Tariffe Ricavo
+# e risoluzione dinamica delle colonne (Provincia, Comune, Kg, ecc.)
 # ============================================================
 import hashlib
 import hmac
@@ -26,15 +27,6 @@ st.set_page_config(
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# --- FORZATURA TEMA CHIARO (Anti-Testo Bianco) ---
-st_dir = os.path.join(BASE_DIR, ".streamlit")
-os.makedirs(st_dir, exist_ok=True)
-config_path = os.path.join(st_dir, "config.toml")
-if not os.path.exists(config_path):
-    with open(config_path, "w", encoding="utf-8") as f:
-        f.write("[theme]\nbase='light'\nprimaryColor='#123B33'\nbackgroundColor='#F2F5F2'\nsecondaryBackgroundColor='#FFFFFF'\ntextColor='#14211D'\n")
-# -------------------------------------------------
 
 FILES = {
     "users": os.path.join(BASE_DIR, "utenti_cristoforo.csv"),
@@ -100,29 +92,6 @@ html, body, [class*="css"], .stApp { font-family: var(--body); font-variant-nume
 [data-testid="stHeader"] { background: transparent; }
 .block-container { max-width: 1480px; padding-top: 1.4rem; padding-bottom: 4rem; }
 footer { visibility: hidden; }
-
-/* FIX COLORI TESTO (Anti-Dark Mode) */
-[data-testid="stAppViewContainer"] { background: var(--paper); color: var(--ink); }
-.stMarkdown p, .stMarkdown li, [data-testid="stMarkdownContainer"] p { color: var(--ink) !important; }
-[data-testid="stMetricLabel"] p { color: var(--mute) !important; }
-[data-testid="stMetricValue"] { color: var(--ink) !important; }
-[data-testid="stCheckbox"] p, [data-testid="stRadio"] p { color: var(--ink) !important; }
-
-/* INPUTS, SELECT E POPOVER FIX TESTO BIANCO */
-div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="textarea"] { background:#FFFFFF !important; border-color: var(--line) !important; border-radius: 10px !important; }
-div[data-baseweb="select"] *, div[data-baseweb="input"] *, input, textarea { color: var(--ink) !important; -webkit-text-fill-color: var(--ink) !important; }
-div[data-baseweb="popover"] { background-color: var(--card) !important; }
-div[data-baseweb="popover"] * { color: var(--ink) !important; }
-
-/* TABS FIX TESTO BIANCO */
-[data-testid="stTabs"] button p { font-size: 14px; font-weight: 600; color: var(--mute) !important; }
-[data-testid="stTabs"] button[aria-selected="true"] p { color: var(--pine) !important; }
-[data-testid="stTabs"] button[aria-selected="true"] { border-bottom-color: var(--pine) !important; }
-
-/* DATAFRAME */
-[data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
-
-/* SIDEBAR E STRUTTURA LOGO */
 section[data-testid="stSidebar"] { background: linear-gradient(180deg, #0F332C 0%, #123B33 55%, #16483D 100%) !important; border-right: 0 !important; }
 section[data-testid="stSidebar"] * { color: #E6EFEA !important; }
 section[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.12) !important; }
@@ -204,6 +173,9 @@ section[data-testid="stSidebar"] div.stButton > button { background: rgba(255,25
 div.stButton > button, div.stDownloadButton > button { min-height: 42px; border-radius: 10px; font-weight: 600; }
 div.stButton > button[kind="primary"] { background: var(--pine) !important; color:#FFFFFF !important; border-color: var(--pine) !important; }
 div.stButton > button:not([kind="primary"]), div.stDownloadButton > button { background:#FFFFFF !important; color: var(--ink) !important; border-color: var(--line) !important; }
+[data-testid="stMetric"] { background:#FFFFFF; border:1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+[data-testid="stMetricValue"] { font-family: var(--display); color: var(--ink); }
+[data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
 .foot { text-align:center; color: var(--mute); font-size: 12px; padding: 34px 0 4px; }
 </style>
 """,
@@ -961,7 +933,7 @@ elif page == "Ingombranti":
             # Leggiamo saltando le prime 3 righe come fatto sul file originale
             df_ing = pd.read_excel(file_ing, header=3)
             
-            # Puliamo i nomi delle colonne per fare un "match" sicuro (indipendente da a capi o spazi)
+            # 1. Puliamo i nomi delle colonne per fare un "match" sicuro (indipendente da a capi o spazi)
             cols_lower = {c: str(c).lower().replace('\n', ' ').strip() for c in df_ing.columns}
             rename_map = {}
             for orig, lower in cols_lower.items():
@@ -1033,7 +1005,7 @@ elif page == "Ingombranti":
                     if ricavo_ton == 0.0 or costo_h_aut == 0.0 or (liv_sup and costo_h_sup == 0.0) or costo_h_mezzo == 0.0:
                         anomalia = 1
 
-                    # Salviamo la provincia all'interno delle Note
+                    # Salviamo la provincia all'interno delle Note per poterla ricercare in futuro
                     nota_servizio = f"Provincia: {provincia}" if provincia and provincia != 'nan' else ""
 
                     risultati.append({
@@ -1351,4 +1323,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.1</div>')
+html('<div class="foot">Cristoforo Control Room V8</div>')
