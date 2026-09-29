@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.4
-# Fix crash avvio (rimossa generazione config) e Modulo Ingombranti definitivo
+# CRISTOFORO | CONTROL ROOM V8.5
+# Stabilizzazione avvio, eliminazione loop e caricamento sicuro
 # ============================================================
 import hashlib
 import hmac
@@ -102,20 +102,17 @@ html, body, [class*="css"], .stApp { font-family: var(--body); font-variant-nume
 .block-container { max-width: 1480px; padding-top: 1.4rem; padding-bottom: 4rem; }
 footer { visibility: hidden; }
 
-/* FIX COLORI TESTO GENERALI */
 .stMarkdown p, .stMarkdown li, [data-testid="stMarkdownContainer"] p { color: var(--ink) !important; }
 [data-testid="stMetricLabel"] p { color: var(--mute) !important; }
 [data-testid="stMetricValue"] { color: var(--ink) !important; }
 [data-testid="stCheckbox"] p, [data-testid="stRadio"] p { color: var(--ink) !important; }
 div[data-baseweb="select"] > div, div[data-baseweb="input"], div[data-baseweb="textarea"] { border-radius: 10px !important; }
 
-/* DATAFRAME E TABS */
 [data-testid="stTabs"] button p { font-size: 14px; font-weight: 600; color: var(--mute) !important; }
 [data-testid="stTabs"] button[aria-selected="true"] p { color: var(--pine) !important; }
 [data-testid="stTabs"] button[aria-selected="true"] { border-bottom-color: var(--pine) !important; }
 [data-testid="stDataFrame"], [data-testid="stDataEditor"] { border:1px solid var(--line); border-radius: 12px; overflow:hidden; }
 
-/* SIDEBAR E STRUTTURA LOGO */
 section[data-testid="stSidebar"] { background: linear-gradient(180deg, #0F332C 0%, #123B33 55%, #16483D 100%) !important; border-right: 0 !important; }
 section[data-testid="stSidebar"] * { color: #E6EFEA !important; }
 section[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,.12) !important; }
@@ -1338,4 +1335,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.4</div>')
+html('<div class="foot">Cristoforo Control Room V8.5</div>')
