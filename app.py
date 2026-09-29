@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+# ============================================================
+# CRISTOFORO | CONTROL ROOM V8.6
+# Correzioni: grafico ore, guardie sui filtri, import Ingombranti robusto,
+# anti-duplicati, sicurezza utenti, chiave univoca nei dettagli di consuntivo
+# ============================================================
 import hashlib
 import hmac
 import io
