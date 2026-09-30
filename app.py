@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.7
-# Auto-Repair per CSV corrotti, fix avvio e Modulo Ingombranti
+# CRISTOFORO | CONTROL ROOM V8.9
+# Anteprima Esplosa: Mostra Livelli e Tariffe Orarie in chiaro riga per riga
 # ============================================================
 import hashlib
 import hmac
@@ -461,57 +461,6 @@ def load_uploaded_raw(uploaded):
         return best
     raise ValueError("Formato non supportato: usa CSV o Excel.")
 
-def read_users():
-    cols = ["username", "password", "nome", "ruolo", "autorizzazioni"]
-    df = ensure(aliases_rename(read_csv_flexible(FILES["users"]), {"username": ["user", "utente", "login"], "password": ["pass", "pwd"], "nome": ["name", "nominativo"], "ruolo": ["role", "profilo"], "autorizzazioni": ["cantieri", "commesse", "cantiere", "accessi"]}), cols)[cols].copy()
-    for c in cols: df[c] = df[c].astype(str).str.strip()
-    return df
-
-def read_operators():
-    cols = ["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Sottoservizio"]
-    return load_table("operators", {"Matricola": ["id_operatore", "codice_operatore", "employee_id"], "Nome": ["first_name"], "Cognome": ["last_name"], "Contratto": ["ccnl"], "Livello": ["level", "inquadramento"], "Sottoservizio": ["cantiere", "commessa", "subservice"]}, cols, text=cols)
-
-def read_vehicles():
-    cols = ["Targa", "Mezzo", "Tipo", "Sottoservizio"]
-    return load_table("vehicles", {"Targa": ["plate"], "Mezzo": ["veicolo", "vehicle"], "Tipo": ["tipo_mezzo", "categoria_mezzo"], "Sottoservizio": ["cantiere", "commessa", "subservice"]}, cols, text=cols)
-
-def read_tariffs():
-    cols = ["Tipo", "Contratto", "Livello_o_Tipo", "Costo_Orario", "Attivo"]
-    df = load_table("tariffs", {"Tipo": ["tipo_costo", "categoria"], "Contratto": ["ccnl"], "Livello_o_Tipo": ["livello", "livello_o_tipo", "voce", "tipo_mezzo"], "Costo_Orario": ["costo_orario", "costo", "tariffa", "prezzo"], "Attivo": ["attiva", "active"]}, cols, numbers=["Costo_Orario"])
-    df["Attivo"] = df["Attivo"].replace("", "SI")
-    return df
-
-SERVICES_COLS = ["ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da", "Periodo Da", "Periodo A", "Anomalie"]
-
-def read_services():
-    df = load_table("services", {"ID": ["id_consuntivo"], "Data": ["data_servizio", "giorno", "date"], "Servizio": ["categoria", "servizio_principale", "tipo_servizio"], "Sottoservizio": ["sotto_servizio", "dettaglio", "cantiere", "commessa"], "Centro di Costo": ["centro_di_costo", "centro_costo"], "Tonnellate": ["ton", "tonnellaggio"], "Ricavi": ["ricavo", "ricavi_euro", "revenue", "fatturato"], "Costo Personale": ["costo_personale"], "Costo Mezzi": ["costo_mezzi"], "Costo Totale": ["costo", "costi", "costo_totale"], "Margine": ["margine_netto", "profitto"], "Ore Uomo": ["ore_personale", "ore_operatori"], "Ore Mezzi": ["ore_veicoli"], "Creato Da": ["operatore", "utente", "created_by"]}, SERVICES_COLS, text=["ID", "Servizio", "Sottoservizio", "Centro di Costo", "Note", "Creato Da"], dates=["Data", "Periodo Da", "Periodo A"], hours=["Ore Uomo", "Ore Mezzi"], numbers=["Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Anomalie"])
-    if not df.empty:
-        missing = df["Margine"].eq(0) & (df["Ricavi"].ne(0) | df["Costo Totale"].ne(0))
-        df.loc[missing, "Margine"] = df.loc[missing, "Ricavi"] - df.loc[missing, "Costo Totale"]
-        no_cc = df["Centro di Costo"].eq("")
-        if not no_cc.empty and no_cc.any(): df.loc[no_cc, "Centro di Costo"] = df.loc[no_cc].apply(lambda r: centro_costo(r["Servizio"], r["Sottoservizio"]), axis=1)
-    return df
-
-def read_personnel():
-    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
-    return load_table("personnel", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Operatore": ["dipendente", "addetto"], "Contratto": ["ccnl"], "Livello": ["level", "inquadramento"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Stato Match"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
-
-def read_vehicle_detail():
-    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
-    return load_table("vehicle_detail", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Tipo": ["tipo_mezzo"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Stato Match"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
-
-def read_imports():
-    cols = ["ID Import", "Data Import", "File", "Righe", "Ore", "Stato", "Operatore"]
-    return load_table("certifications", {"ID Import": ["id_import"], "Data Import": ["data_import"]}, cols, text=["ID Import", "File", "Stato", "Operatore"], dates=["Data Import"], numbers=["Righe", "Ore"])
-
-def read_cert_rows():
-    df = ensure(aliases_rename(read_csv_flexible(FILES["cert_rows"]), {**CERT_ALIASES, "ID Import": ["id_import", "import_id"]}), CERT_COLUMNS + ["ID Import"])[CERT_COLUMNS + ["ID Import"]].copy()
-    for c in CERT_TEXT + CERT_TIMES + ["ID Import"]: df[c] = df[c].map(txt)
-    for c in ["Data Pianificazione", "Data Svolgimento"]: df[c] = pd.to_datetime(df[c].apply(parse_date), errors="coerce")
-    df["Orario Previsto"] = df["Orario Previsto"].apply(parse_hours)
-    df["Durata"] = df["Durata"].apply(parse_hours)
-    return prepare_cert(df)
-
 # ============================================================
 # INIZIALIZZAZIONE FILE GLOBALI E AUTO-REPAIR
 # ============================================================
@@ -530,7 +479,6 @@ def init_files():
     for key, cols in empties.items():
         if not os.path.exists(FILES[key]): save_csv(pd.DataFrame(columns=cols), FILES[key])
     
-    # Preparazione Tariffe di Default (Tutti i mezzi e contratti)
     default_tariffs = [{"Tipo": "Personale", "Contratto": c, "Livello_o_Tipo": lv, "Costo_Orario": 0.0, "Attivo": "SI"} for c, levels in CONTRACTS.items() for lv in levels]
     default_tariffs += [{"Tipo": "Mezzo", "Contratto": "", "Livello_o_Tipo": k, "Costo_Orario": v, "Attivo": "SI"} for k, v in DEFAULT_VEHICLE_COSTS.items()]
     default_tariffs += [
@@ -545,24 +493,17 @@ def init_files():
     else:
         try:
             df_t = read_tariffs()
-            # Failsafe: se il file è corrotto (colonne duplicate create dal bug V8.6), forziamo l'errore per resettarlo
-            if len(df_t.columns) > len(set(df_t.columns)):
-                raise ValueError("File corrotto con colonne duplicate")
-            if df_t.empty:
-                save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
+            if len(df_t.columns) > len(set(df_t.columns)): raise ValueError("File corrotto")
+            if df_t.empty: save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
             else:
                 missing = []
                 df_t_tipo = df_t["Tipo"].astype(str).str.lower().str.strip()
                 df_t_liv = df_t["Livello_o_Tipo"].astype(str).str.lower().str.strip()
                 for dt in default_tariffs:
                     match = (df_t_tipo == str(dt["Tipo"]).lower().strip()) & (df_t_liv == str(dt["Livello_o_Tipo"]).lower().strip())
-                    if not match.any():
-                        missing.append(dt)
-                if missing:
-                    df_t = pd.concat([df_t, pd.DataFrame(missing)], ignore_index=True)
-                    save_csv(df_t, FILES["tariffs"])
+                    if not match.any(): missing.append(dt)
+                if missing: save_csv(pd.concat([df_t, pd.DataFrame(missing)], ignore_index=True), FILES["tariffs"])
         except Exception:
-            # Auto-Repair: Resetta il file con i dati puliti
             save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
 
 init_files()
@@ -970,11 +911,11 @@ if page == "Dashboard":
 # MODULO INGOMBRANTI
 # ============================================================
 elif page == "Ingombranti":
-    st.info("Carica il file Excel mensile della Raccolta Ingombranti. Il sistema individuerà in automatico Provincia, Comune e Kg a prescindere dal loro ordine nel file.")
+    st.info("Carica il file Excel mensile della Raccolta Ingombranti.")
     col_a, col_b = st.columns([1, 1])
     
     file_ing = col_a.file_uploader("Carica file Ingombranti", type=["xlsx", "xls"])
-    selected_ccnl = col_b.selectbox("Scegli il CCNL di Riferimento per questo file", options=list(CONTRACTS.keys()), help="Indica a quale listino appartengono i livelli scritti nel file (es. D1, B2).")
+    selected_ccnl = col_b.selectbox("Scegli il CCNL di Riferimento per questo file", options=list(CONTRACTS.keys()), help="Indica in quale listino cercare i livelli del personale (es. D1).")
 
     if file_ing:
         try:
@@ -1002,9 +943,9 @@ elif page == "Ingombranti":
             df_ing = df_ing.dropna(subset=['Data', 'Comune'])
             
             if df_ing.empty:
-                st.warning("Il file non contiene righe valide con Date e Comuni.")
+                st.warning("Nessun dato valido.")
             else:
-                st.success(f"File letto con successo! Elaborazione di {len(df_ing)} servizi ingombranti.")
+                st.success(f"File elaborato! Estrazione di {len(df_ing)} servizi ingombranti.")
                 
                 risultati = []
                 overhead_pct = general_rate(tariffs, "Overhead", 15.0)
@@ -1028,13 +969,12 @@ elif page == "Ingombranti":
                     liv_sup = str(row.get('Livello_Supporto', '')).strip()
                     tipo_mezzo = str(row.get('Mezzo', '')).strip()
                     
+                    # Estrazione tariffe separate dal database
                     costo_h_aut = labor_rate(tariffs, selected_ccnl, liv_aut)
                     costo_h_sup = labor_rate(tariffs, selected_ccnl, liv_sup) if liv_sup and liv_sup.lower() != 'nan' else 0.0
                     costo_h_mezzo = vehicle_rate(tariffs, tipo_mezzo)
                     
-                    costo_h_pers_totale = costo_h_aut + costo_h_sup
-                    
-                    costo_personale = costo_h_pers_totale * ore_dec
+                    costo_personale = (costo_h_aut + costo_h_sup) * ore_dec
                     costo_mezzo = costo_h_mezzo * ore_dec
                     overhead = (costo_personale + costo_mezzo) * overhead_pct / 100.0
                     costo_totale = costo_personale + costo_mezzo + overhead
@@ -1049,17 +989,18 @@ elif page == "Ingombranti":
 
                     risultati.append({
                         "Data": data.date() if pd.notnull(data) else None,
-                        "Provincia": provincia,
                         "Comune": comune,
+                        "Liv. Autista": liv_aut,
+                        "€/h Autista": costo_h_aut,
+                        "Liv. Supporto": liv_sup if liv_sup and liv_sup.lower() != 'nan' else "-",
+                        "€/h Supporto": costo_h_sup,
                         "Mezzo": tipo_mezzo,
-                        "Costo h Mezzo": costo_h_mezzo,  
-                        "Addetti": f"{liv_aut} + {liv_sup}" if liv_sup and liv_sup != 'nan' else liv_aut,
-                        "Costo h Pers.": costo_h_pers_totale, 
+                        "€/h Mezzo": costo_h_mezzo,  
                         "Ore": ore_dec,
-                        "Ton": ton,
-                        "Ricavo Tonnellata": ricavo_ton,
-                        "Ricavi Totali": ricavo_totale,
-                        "Costi Diretti": costo_personale + costo_mezzo,
+                        "Tot. Costo Pers.": costo_personale,
+                        "Tot. Costo Mezzo": costo_mezzo,
+                        "Ricavo/Ton": ricavo_ton,
+                        "Ricavo Totale": ricavo_totale,
                         "Margine": margine,
                         "Anomalie": anomalia,
                         "Note": nota_servizio,
@@ -1072,25 +1013,26 @@ elif page == "Ingombranti":
 
                 df_res = pd.DataFrame(risultati)
                 
-                st.subheader("Anteprima Elaborazione Automatica")
+                st.subheader("Anteprima Elaborazione")
                 view_df = df_res.copy()
                 view_df.drop(columns=['raw_costo_pers', 'raw_costo_mezzo', 'raw_overhead', 'raw_costo_tot', 'Servizio', 'Note', 'Anomalie'], inplace=True)
                 
                 sx(st.dataframe, view_df, hide_index=True, column_config={
                     "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+                    "€/h Autista": st.column_config.NumberColumn(format="€ %.2f"),
+                    "€/h Supporto": st.column_config.NumberColumn(format="€ %.2f"),
+                    "€/h Mezzo": st.column_config.NumberColumn(format="€ %.2f"),
                     "Ore": st.column_config.NumberColumn(format="%.2f"),
-                    "Ton": st.column_config.NumberColumn(format="%.2f"),
-                    "Costo h Mezzo": st.column_config.NumberColumn(format="€ %.2f"),
-                    "Costo h Pers.": st.column_config.NumberColumn(format="€ %.2f"),
-                    "Ricavo Tonnellata": st.column_config.NumberColumn(format="€ %.2f"),
-                    "Ricavi Totali": st.column_config.NumberColumn(format="€ %.2f"),
-                    "Costi Diretti": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Tot. Costo Pers.": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Tot. Costo Mezzo": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Ricavo/Ton": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Ricavo Totale": st.column_config.NumberColumn(format="€ %.2f"),
                     "Margine": st.column_config.NumberColumn(format="€ %.2f")
                 })
                 
                 anomalie_tot = df_res['Anomalie'].sum()
                 if anomalie_tot > 0:
-                    st.warning(f"ATTENZIONE: {anomalie_tot} righe presentano tariffe a zero (Ricavo a tonnellata o Costi Orari). Per risolvere, copia il nome esatto del mezzo o dell'addetto e inseriscigli un costo nella scheda 'Tariffe e contratti'.")
+                    st.warning(f"ATTENZIONE: {anomalie_tot} righe presentano costi orari a 0,00 €. Verifica nel menu 'Tariffe e contratti' di aver salvato l'importo per il livello o il mezzo mostrato qui sopra.")
                 
                 if sx(st.button, "Salva tutti come Centri di Costo", type="primary"):
                     rows_to_save = []
@@ -1101,10 +1043,10 @@ elif page == "Ingombranti":
                         rows_to_save.append({
                             "ID": cid, "Data": r["Data"], "Servizio": r["Servizio"], "Sottoservizio": r["Comune"], 
                             "Centro di Costo": centro_costo(r["Servizio"], r["Comune"]),
-                            "Tonnellate": r["Ton"], "Ricavi": r["Ricavi Totali"], 
+                            "Tonnellate": df_ing.iloc[i].get('Kg', 0) / 1000.0, "Ricavi": r["Ricavo Totale"], 
                             "Costo Personale": r["raw_costo_pers"], "Costo Mezzi": r["raw_costo_mezzo"], 
                             "Overhead": r["raw_overhead"], "Costo Totale": r["raw_costo_tot"], 
-                            "Margine": r["Margine"], "Ore Uomo": r["Ore"] * (2 if "+" in r["Addetti"] else 1), 
+                            "Margine": r["Margine"], "Ore Uomo": r["Ore"] * (2 if r["Liv. Supporto"] != "-" else 1), 
                             "Ore Mezzi": r["Ore"], "Note": r["Note"] + f" | Mezzo: {r['Mezzo']}",
                             "Creato Da": st.session_state.nome, "Periodo Da": r["Data"], "Periodo A": r["Data"], 
                             "Anomalie": r["Anomalie"]
@@ -1365,4 +1307,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.7</div>')
+html('<div class="foot">Cristoforo Control Room V8.9</div>')
