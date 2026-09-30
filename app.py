@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.9
-# Anteprima Esplosa: Mostra Livelli e Tariffe Orarie in chiaro riga per riga
+# CRISTOFORO | CONTROL ROOM V8.10
+# Ripristino funzioni di lettura dati (Fix NameError)
+# Anteprima Esplosa per Modulo Ingombranti
 # ============================================================
 import hashlib
 import hmac
@@ -492,21 +493,79 @@ def init_files():
         save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
     else:
         try:
-            df_t = read_tariffs()
+            df_t = read_csv_flexible(FILES["tariffs"])
             if len(df_t.columns) > len(set(df_t.columns)): raise ValueError("File corrotto")
             if df_t.empty: save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
             else:
                 missing = []
-                df_t_tipo = df_t["Tipo"].astype(str).str.lower().str.strip()
-                df_t_liv = df_t["Livello_o_Tipo"].astype(str).str.lower().str.strip()
+                df_t_tipo = df_t["tipo"].astype(str).str.lower().str.strip()
+                df_t_liv = df_t["livello_o_tipo"].astype(str).str.lower().str.strip()
                 for dt in default_tariffs:
                     match = (df_t_tipo == str(dt["Tipo"]).lower().strip()) & (df_t_liv == str(dt["Livello_o_Tipo"]).lower().strip())
                     if not match.any(): missing.append(dt)
-                if missing: save_csv(pd.concat([df_t, pd.DataFrame(missing)], ignore_index=True), FILES["tariffs"])
+                if missing: 
+                    # Use exact column names mapped to the current file
+                    mapper = {k: clean_col(k) for k in dt.keys()}
+                    miss_df = pd.DataFrame(missing).rename(columns=mapper)
+                    save_csv(pd.concat([df_t, miss_df], ignore_index=True), FILES["tariffs"])
         except Exception:
             save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
 
 init_files()
+
+# --- FUNZIONI DI LETTURA RIPRISTINATE ---
+def read_users():
+    cols = ["username", "password", "nome", "ruolo", "autorizzazioni"]
+    df = ensure(aliases_rename(read_csv_flexible(FILES["users"]), {"username": ["user", "utente", "login"], "password": ["pass", "pwd"], "nome": ["name", "nominativo"], "ruolo": ["role", "profilo"], "autorizzazioni": ["cantieri", "commesse", "cantiere", "accessi"]}), cols)[cols].copy()
+    for c in cols: df[c] = df[c].astype(str).str.strip()
+    return df
+
+def read_operators():
+    cols = ["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Sottoservizio"]
+    return load_table("operators", {"Matricola": ["id_operatore", "codice_operatore", "employee_id"], "Nome": ["first_name"], "Cognome": ["last_name"], "Contratto": ["ccnl"], "Livello": ["level", "inquadramento"], "Sottoservizio": ["cantiere", "commessa", "subservice"]}, cols, text=cols)
+
+def read_vehicles():
+    cols = ["Targa", "Mezzo", "Tipo", "Sottoservizio"]
+    return load_table("vehicles", {"Targa": ["plate"], "Mezzo": ["veicolo", "vehicle"], "Tipo": ["tipo_mezzo", "categoria_mezzo"], "Sottoservizio": ["cantiere", "commessa", "subservice"]}, cols, text=cols)
+
+def read_tariffs():
+    cols = ["Tipo", "Contratto", "Livello_o_Tipo", "Costo_Orario", "Attivo"]
+    df = load_table("tariffs", {"Tipo": ["tipo_costo", "categoria"], "Contratto": ["ccnl"], "Livello_o_Tipo": ["livello", "livello_o_tipo", "voce", "tipo_mezzo"], "Costo_Orario": ["costo_orario", "costo", "tariffa", "prezzo"], "Attivo": ["attiva", "active"]}, cols, numbers=["Costo_Orario"])
+    df["Attivo"] = df["Attivo"].replace("", "SI")
+    return df
+
+SERVICES_COLS = ["ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da", "Periodo Da", "Periodo A", "Anomalie"]
+
+def read_services():
+    df = load_table("services", {"ID": ["id_consuntivo"], "Data": ["data_servizio", "giorno", "date"], "Servizio": ["categoria", "servizio_principale", "tipo_servizio"], "Sottoservizio": ["sotto_servizio", "dettaglio", "cantiere", "commessa"], "Centro di Costo": ["centro_di_costo", "centro_costo"], "Tonnellate": ["ton", "tonnellaggio"], "Ricavi": ["ricavo", "ricavi_euro", "revenue", "fatturato"], "Costo Personale": ["costo_personale"], "Costo Mezzi": ["costo_mezzi"], "Costo Totale": ["costo", "costi", "costo_totale"], "Margine": ["margine_netto", "profitto"], "Ore Uomo": ["ore_personale", "ore_operatori"], "Ore Mezzi": ["ore_veicoli"], "Creato Da": ["operatore", "utente", "created_by"]}, SERVICES_COLS, text=["ID", "Servizio", "Sottoservizio", "Centro di Costo", "Note", "Creato Da"], dates=["Data", "Periodo Da", "Periodo A"], hours=["Ore Uomo", "Ore Mezzi"], numbers=["Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Anomalie"])
+    if not df.empty:
+        missing = df["Margine"].eq(0) & (df["Ricavi"].ne(0) | df["Costo Totale"].ne(0))
+        df.loc[missing, "Margine"] = df.loc[missing, "Ricavi"] - df.loc[missing, "Costo Totale"]
+        no_cc = df["Centro di Costo"].eq("")
+        if not no_cc.empty and no_cc.any(): df.loc[no_cc, "Centro di Costo"] = df.loc[no_cc].apply(lambda r: centro_costo(r["Servizio"], r["Sottoservizio"]), axis=1)
+    return df
+
+def read_personnel():
+    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
+    return load_table("personnel", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Operatore": ["dipendente", "addetto"], "Contratto": ["ccnl"], "Livello": ["level", "inquadramento"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Stato Match"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
+
+def read_vehicle_detail():
+    cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
+    return load_table("vehicle_detail", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Tipo": ["tipo_mezzo"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Stato Match"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
+
+def read_imports():
+    cols = ["ID Import", "Data Import", "File", "Righe", "Ore", "Stato", "Operatore"]
+    return load_table("certifications", {"ID Import": ["id_import"], "Data Import": ["data_import"]}, cols, text=["ID Import", "File", "Stato", "Operatore"], dates=["Data Import"], numbers=["Righe", "Ore"])
+
+def read_cert_rows():
+    df = ensure(aliases_rename(read_csv_flexible(FILES["cert_rows"]), {**CERT_ALIASES, "ID Import": ["id_import", "import_id"]}), CERT_COLUMNS + ["ID Import"])[CERT_COLUMNS + ["ID Import"]].copy()
+    for c in CERT_TEXT + CERT_TIMES + ["ID Import"]: df[c] = df[c].map(txt)
+    for c in ["Data Pianificazione", "Data Svolgimento"]: df[c] = pd.to_datetime(df[c].apply(parse_date), errors="coerce")
+    df["Orario Previsto"] = df["Orario Previsto"].apply(parse_hours)
+    df["Durata"] = df["Durata"].apply(parse_hours)
+    return prepare_cert(df)
+
+# --- FINE FUNZIONI DI LETTURA ---
 
 def split_access(value):
     raw = str(value).strip()
@@ -1307,4 +1366,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.9</div>')
+html('<div class="foot">Cristoforo Control Room V8.10</div>')
