@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.11
-# Motore Ricerca Tariffe Avanzato (Fuzzy Lookup) per Modulo Ingombranti
+# CRISTOFORO | CONTROL ROOM V8.12
+# Fix lettura colonna Autista/Supporto (Risolto Liv. Autista vuoto)
 # ============================================================
 import hashlib
 import hmac
@@ -574,27 +574,21 @@ def authorized(df, column="Sottoservizio"):
     if not allowed or column not in df.columns: return df.iloc[0:0].copy()
     return df[df[column].astype(str).str.strip().isin(allowed)].copy()
 
-# ============================================================
-# FUZZY LOOKUP PER TARIFFE
-# ============================================================
 def rate_lookup(tariffs, tipo, key, contract=None):
     m = (tariffs["Tipo"].astype(str).str.lower().eq(tipo.lower())
          & tariffs["Livello_o_Tipo"].astype(str).str.strip().str.lower().eq(str(key).strip().lower())
          & tariffs["Attivo"].astype(str).str.upper().eq("SI"))
     
-    # 1. Prova match esatto col contratto
     if contract is not None and str(contract).strip(): 
         m_exact = m & tariffs["Contratto"].astype(str).str.strip().eq(str(contract).strip())
         d_exact = tariffs.loc[m_exact, "Costo_Orario"]
         if not d_exact.empty and float(d_exact.iloc[0]) > 0:
             return float(d_exact.iloc[0])
             
-    # 2. Se è zero o non lo trova, prova in tutto il database per quel livello (Fuzzy Lookup)
     d_fuzzy = tariffs.loc[m & (tariffs["Costo_Orario"] > 0), "Costo_Orario"]
     if not d_fuzzy.empty:
         return float(d_fuzzy.iloc[0])
         
-    # 3. Fallback: restituisce il primo che trova (probabilmente zero)
     d_zero = tariffs.loc[m, "Costo_Orario"]
     return float(d_zero.iloc[0]) if not d_zero.empty else 0.0
 
@@ -905,7 +899,7 @@ with st.sidebar:
 
 PAGE_META = {
     "Dashboard": ("Control Room", "Ricavi, costi, ore e margine dei servizi in un colpo d'occhio."),
-    "Ingombranti": ("Raccolta Ingombranti", "Import file Excel e calcolo automatico tariffe (Fuzzy Lookup)"),
+    "Ingombranti": ("Raccolta Ingombranti", "Importa file Excel e calcola automaticamente i costi per ogni mezzo e operatore."),
     "Consuntivazione": ("Nuovo consuntivo", "Collega la certificazione a un servizio, controlla il costo e salva il centro di costo."),
     "Certificazioni": ("Certificazioni Standard", "Importa i file di certificazione ordinari per validare ore e mezzi."),
     "Economico": ("Centro di costo", "Ricavi, costi e margine per servizio, sottoservizio, operatore e mezzo."),
@@ -991,15 +985,16 @@ elif page == "Ingombranti":
         try:
             df_ing = pd.read_excel(file_ing, header=3)
             
+            # --- Motore potenziato per trovare la colonna del livello ---
             cols_lower = {c: str(c).lower().replace('\n', ' ').strip() for c in df_ing.columns}
             rename_map = {}
             for orig, lower in cols_lower.items():
                 if lower == 'data': rename_map[orig] = 'Data'
                 elif 'comune' in lower: rename_map[orig] = 'Comune'
                 elif 'provincia' in lower: rename_map[orig] = 'Provincia'
-                elif lower == 'autista' or ('autista' in lower and 'nr' not in lower and 'livello' not in lower): rename_map[orig] = 'Livello_Autista'
-                elif 'supporto' in lower or lower == 'supporto': rename_map[orig] = 'Livello_Supporto'
-                elif 'mezzo' in lower or 'tipologia mezzo' in lower: rename_map[orig] = 'Mezzo'
+                elif 'autista' in lower and 'nr' not in lower: rename_map[orig] = 'Livello_Autista'
+                elif 'supporto' in lower: rename_map[orig] = 'Livello_Supporto'
+                elif 'mezzo' in lower or 'tipologia' in lower: rename_map[orig] = 'Mezzo'
                 elif 'h/turno' in lower or 'ore' in lower: rename_map[orig] = 'Ore'
                 elif 'quantità' in lower or 'kg' in lower: rename_map[orig] = 'Kg'
                 elif 'servizio' in lower: rename_map[orig] = 'Servizio'
@@ -1007,7 +1002,7 @@ elif page == "Ingombranti":
             df_ing.rename(columns=rename_map, inplace=True)
             
             if 'Data' not in df_ing.columns or 'Comune' not in df_ing.columns:
-                st.error("Errore: Impossibile trovare le colonne 'Data' e 'Comune' nel file. Controlla il formato.")
+                st.error("Errore: Impossibile trovare le colonne 'Data' e 'Comune' nel file.")
                 st.stop()
                 
             df_ing = df_ing.dropna(subset=['Data', 'Comune'])
@@ -1035,11 +1030,11 @@ elif page == "Ingombranti":
                     ore_str = row.get('Ore', 0)
                     ore_dec = parse_hours(ore_str)
                     
+                    # Estrazione e pulizia del testo livello
                     liv_aut = str(row.get('Livello_Autista', '')).strip()
                     liv_sup = str(row.get('Livello_Supporto', '')).strip()
                     tipo_mezzo = str(row.get('Mezzo', '')).strip()
                     
-                    # Estrazione Fuzzy delle Tariffe
                     costo_h_aut = labor_rate(tariffs, selected_ccnl, liv_aut)
                     costo_h_sup = labor_rate(tariffs, selected_ccnl, liv_sup) if liv_sup and liv_sup.lower() != 'nan' else 0.0
                     costo_h_mezzo = vehicle_rate(tariffs, tipo_mezzo)
@@ -1062,7 +1057,7 @@ elif page == "Ingombranti":
                     risultati.append({
                         "Data": data.date() if pd.notnull(data) else None,
                         "Comune": comune,
-                        "Liv. Autista": liv_aut,
+                        "Liv. Autista": liv_aut if liv_aut != 'nan' else "-",
                         "€/h Autista": costo_h_aut,
                         "Liv. Supporto": liv_sup if liv_sup and liv_sup.lower() != 'nan' else "-",
                         "€/h Supporto": costo_h_sup,
@@ -1085,7 +1080,7 @@ elif page == "Ingombranti":
 
                 df_res = pd.DataFrame(risultati)
                 
-                st.subheader("Anteprima Tariffe Base e Moltiplicazioni")
+                st.subheader("Anteprima Elaborazione")
                 view_df = df_res.copy()
                 view_df.drop(columns=['raw_costo_pers', 'raw_costo_mezzo', 'raw_overhead', 'raw_costo_tot', 'Servizio', 'Note', 'Anomalie'], inplace=True)
                 
@@ -1104,7 +1099,7 @@ elif page == "Ingombranti":
                 
                 anomalie_tot = df_res['Anomalie'].sum()
                 if anomalie_tot > 0:
-                    st.warning(f"ATTENZIONE: {anomalie_tot} righe presentano costi orari a 0,00 €. Verifica nel menu 'Tariffe e contratti' di aver salvato l'importo per il livello o il mezzo mostrato qui sopra (ricordati di inserire i decimali con il punto o la virgola e cliccare Salva).")
+                    st.warning(f"ATTENZIONE: {anomalie_tot} righe presentano costi orari a 0,00 €. Verifica nel menu 'Tariffe e contratti' di aver salvato l'importo per il livello o il mezzo mostrato qui sopra.")
                 
                 if sx(st.button, "Salva tutti come Centri di Costo", type="primary"):
                     rows_to_save = []
@@ -1379,4 +1374,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.11</div>')
+html('<div class="foot">Cristoforo Control Room V8.12</div>')
