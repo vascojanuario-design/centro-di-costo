@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.6
-# Auto-sync tariffario mezzi e moduli definitivi
+# CRISTOFORO | CONTROL ROOM V8.7
+# Auto-Repair per CSV corrotti, fix avvio e Modulo Ingombranti
 # ============================================================
 import hashlib
 import hmac
@@ -49,7 +49,6 @@ SERVICE_TREE = {
 }
 ALL_SUBSERVICES = sorted({x for values in SERVICE_TREE.values() for x in values})
 
-# --- LISTA COMPLETA FLOTTA DAL SIMULATORE GARE ---
 DEFAULT_VEHICLE_TYPES = [
     "35 qt", "Vasca", "3 Assi", "4 Assi", "Scarrabile", "Leggero", "Furgone", "Compattatore", "Spazzatrice",
     "1. Porter", "2. Porter Costipatore", "3. 35qt Vasca", "4. 35qt Vasca Costipatore",
@@ -462,53 +461,6 @@ def load_uploaded_raw(uploaded):
         return best
     raise ValueError("Formato non supportato: usa CSV o Excel.")
 
-# --- INIZIALIZZAZIONE INTELLIGENTE ---
-def init_files():
-    if not os.path.exists(FILES["users"]):
-        save_csv(pd.DataFrame([{"username": u, "password": hash_password(DEFAULT_PASSWORDS[u]), "nome": n, "ruolo": r, "autorizzazioni": a} for u, n, r, a in DEFAULT_USERS_META]), FILES["users"])
-    empties = {
-        "operators": ["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Sottoservizio"],
-        "vehicles": ["Targa", "Mezzo", "Tipo", "Sottoservizio"],
-        "services": ["ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da", "Periodo Da", "Periodo A", "Anomalie"],
-        "personnel": ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match"],
-        "vehicle_detail": ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match"],
-        "certifications": ["ID Import", "Data Import", "File", "Righe", "Ore", "Stato", "Operatore"],
-        "cert_rows": CERT_COLUMNS + ["ID Import"],
-    }
-    for key, cols in empties.items():
-        if not os.path.exists(FILES[key]): save_csv(pd.DataFrame(columns=cols), FILES[key])
-    
-    # Preparo le tariffe di base
-    default_tariffs = [{"Tipo": "Personale", "Contratto": c, "Livello_o_Tipo": lv, "Costo_Orario": 0.0, "Attivo": "SI"} for c, levels in CONTRACTS.items() for lv in levels]
-    default_tariffs += [{"Tipo": "Mezzo", "Contratto": "", "Livello_o_Tipo": k, "Costo_Orario": v, "Attivo": "SI"} for k, v in DEFAULT_VEHICLE_COSTS.items()]
-    default_tariffs += [
-        {"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Overhead", "Costo_Orario": 15.0, "Attivo": "SI"},
-        {"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Tariffa tonnellata", "Costo_Orario": 130.0, "Attivo": "SI"},
-        {"Tipo": "Ricavo Tonnellata", "Contratto": "Ingombranti", "Livello_o_Tipo": "Prato", "Costo_Orario": 140.0, "Attivo": "SI"},
-        {"Tipo": "Ricavo Tonnellata", "Contratto": "Ingombranti", "Livello_o_Tipo": "Mugello", "Costo_Orario": 160.0, "Attivo": "SI"}
-    ]
-
-    if not os.path.exists(FILES["tariffs"]):
-        save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
-    else:
-        # Auto-Sync: se mancano nuovi mezzi o parametri, li aggiunge senza cancellare i dati precedenti
-        df_t = read_csv_flexible(FILES["tariffs"])
-        if df_t.empty:
-            save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
-        else:
-            missing = []
-            df_t_tipo = df_t.get("Tipo", pd.Series(dtype=str)).astype(str).str.lower().str.strip()
-            df_t_liv = df_t.get("Livello_o_Tipo", pd.Series(dtype=str)).astype(str).str.lower().str.strip()
-            for dt in default_tariffs:
-                match = (df_t_tipo == str(dt["Tipo"]).lower().strip()) & (df_t_liv == str(dt["Livello_o_Tipo"]).lower().strip())
-                if not match.any():
-                    missing.append(dt)
-            if missing:
-                df_t = pd.concat([df_t, pd.DataFrame(missing)], ignore_index=True)
-                save_csv(df_t, FILES["tariffs"])
-
-init_files()
-
 def read_users():
     cols = ["username", "password", "nome", "ruolo", "autorizzazioni"]
     df = ensure(aliases_rename(read_csv_flexible(FILES["users"]), {"username": ["user", "utente", "login"], "password": ["pass", "pwd"], "nome": ["name", "nominativo"], "ruolo": ["role", "profilo"], "autorizzazioni": ["cantieri", "commesse", "cantiere", "accessi"]}), cols)[cols].copy()
@@ -559,6 +511,61 @@ def read_cert_rows():
     df["Orario Previsto"] = df["Orario Previsto"].apply(parse_hours)
     df["Durata"] = df["Durata"].apply(parse_hours)
     return prepare_cert(df)
+
+# ============================================================
+# INIZIALIZZAZIONE FILE GLOBALI E AUTO-REPAIR
+# ============================================================
+def init_files():
+    if not os.path.exists(FILES["users"]):
+        save_csv(pd.DataFrame([{"username": u, "password": hash_password(DEFAULT_PASSWORDS[u]), "nome": n, "ruolo": r, "autorizzazioni": a} for u, n, r, a in DEFAULT_USERS_META]), FILES["users"])
+    empties = {
+        "operators": ["Matricola", "Nome", "Cognome", "Contratto", "Livello", "Sottoservizio"],
+        "vehicles": ["Targa", "Mezzo", "Tipo", "Sottoservizio"],
+        "services": ["ID", "Data", "Servizio", "Sottoservizio", "Centro di Costo", "Tonnellate", "Ricavi", "Costo Personale", "Costo Mezzi", "Overhead", "Costo Totale", "Margine", "Ore Uomo", "Ore Mezzi", "Note", "Creato Da", "Periodo Da", "Periodo A", "Anomalie"],
+        "personnel": ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Matricola", "Operatore", "Contratto", "Livello", "Ore", "Costo Orario", "Costo Totale", "Stato Match"],
+        "vehicle_detail": ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match"],
+        "certifications": ["ID Import", "Data Import", "File", "Righe", "Ore", "Stato", "Operatore"],
+        "cert_rows": CERT_COLUMNS + ["ID Import"],
+    }
+    for key, cols in empties.items():
+        if not os.path.exists(FILES[key]): save_csv(pd.DataFrame(columns=cols), FILES[key])
+    
+    # Preparazione Tariffe di Default (Tutti i mezzi e contratti)
+    default_tariffs = [{"Tipo": "Personale", "Contratto": c, "Livello_o_Tipo": lv, "Costo_Orario": 0.0, "Attivo": "SI"} for c, levels in CONTRACTS.items() for lv in levels]
+    default_tariffs += [{"Tipo": "Mezzo", "Contratto": "", "Livello_o_Tipo": k, "Costo_Orario": v, "Attivo": "SI"} for k, v in DEFAULT_VEHICLE_COSTS.items()]
+    default_tariffs += [
+        {"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Overhead", "Costo_Orario": 15.0, "Attivo": "SI"},
+        {"Tipo": "Generale", "Contratto": "", "Livello_o_Tipo": "Tariffa tonnellata", "Costo_Orario": 130.0, "Attivo": "SI"},
+        {"Tipo": "Ricavo Tonnellata", "Contratto": "Ingombranti", "Livello_o_Tipo": "Prato", "Costo_Orario": 140.0, "Attivo": "SI"},
+        {"Tipo": "Ricavo Tonnellata", "Contratto": "Ingombranti", "Livello_o_Tipo": "Mugello", "Costo_Orario": 160.0, "Attivo": "SI"}
+    ]
+
+    if not os.path.exists(FILES["tariffs"]):
+        save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
+    else:
+        try:
+            df_t = read_tariffs()
+            # Failsafe: se il file è corrotto (colonne duplicate create dal bug V8.6), forziamo l'errore per resettarlo
+            if len(df_t.columns) > len(set(df_t.columns)):
+                raise ValueError("File corrotto con colonne duplicate")
+            if df_t.empty:
+                save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
+            else:
+                missing = []
+                df_t_tipo = df_t["Tipo"].astype(str).str.lower().str.strip()
+                df_t_liv = df_t["Livello_o_Tipo"].astype(str).str.lower().str.strip()
+                for dt in default_tariffs:
+                    match = (df_t_tipo == str(dt["Tipo"]).lower().strip()) & (df_t_liv == str(dt["Livello_o_Tipo"]).lower().strip())
+                    if not match.any():
+                        missing.append(dt)
+                if missing:
+                    df_t = pd.concat([df_t, pd.DataFrame(missing)], ignore_index=True)
+                    save_csv(df_t, FILES["tariffs"])
+        except Exception:
+            # Auto-Repair: Resetta il file con i dati puliti
+            save_csv(pd.DataFrame(default_tariffs), FILES["tariffs"])
+
+init_files()
 
 def split_access(value):
     raw = str(value).strip()
@@ -1358,4 +1365,4 @@ elif page == "Accessi":
         if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.6</div>')
+html('<div class="foot">Cristoforo Control Room V8.7</div>')
