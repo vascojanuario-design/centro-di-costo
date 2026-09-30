@@ -1,15 +1,12 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.19
-# Correzioni rispetto alla V8.17:
-#  - aggiunta read_cert_rows (mancava: crash su Consuntivazione/Certificazioni)
-#  - fix pulizia intestazioni Excel Ingombranti ('\n' corretto)
-#  - aggiunta classe CSS .funnel
-#  - ripristinato il grafico ore previste/svolte
-#  - controllo anti-doppioni nell'import Ingombranti
-#  - avviso password predefinita
-# V8.19: import Ingombranti sul formato REND (matricole, targhe, ore turno):
-#  ore x costo orario per ogni addetto (da anagrafica+tariffe) e per il mezzo
+# CRISTOFORO | CONTROL ROOM V8.20
+# Correzioni rispetto alla V8.19:
+#  - Fix calcolo Ingombranti: legge i livelli direttamente dalle
+#    colonne 'Nr. Ope' e 'Nr. Aut' (es. D1) come fallback se
+#    l'anagrafica non contiene la matricola, garantendo il calcolo costi.
+#  - Ripristino visibilità colonne "Liv. Autista", "€/h Autista" nell'anteprima
+#  - Eliminazione spazi vuoti invisibili nel caricamento Tariffe.
 # ============================================================
 import hashlib
 import hmac
@@ -273,6 +270,7 @@ try:
         except ValueError: return 0.0
 
     def parse_hours(value, excel_fraction=False):
+        if isinstance(value, pd.Series): value = value.iloc[0]
         if value is None: return 0.0
         if isinstance(value, (datetime, pd.Timestamp)):
             return value.hour + (value.minute / 60.0) + (value.second / 3600.0)
@@ -642,7 +640,7 @@ try:
                         for dt in default_tariffs:
                             match = (df_t_tipo == str(dt["Tipo"]).lower().strip()) & (df_t_liv == str(dt["Livello_o_Tipo"]).lower().strip())
                             if not match.any(): missing.append(dt)
-                        if missing:
+                        if missing: 
                             mapper = {k: clean_col(k) for k in default_tariffs[0].keys()}
                             miss_df = pd.DataFrame(missing).rename(columns=mapper)
                             save_csv(pd.concat([df_t, miss_df], ignore_index=True), FILES["tariffs"])
@@ -722,9 +720,10 @@ try:
         return df[df[column].astype(str).str.strip().isin(allowed)].copy()
 
     def rate_lookup(tariffs, tipo, key, contract=None):
-        m = (tariffs["Tipo"].astype(str).str.lower().eq(tipo.lower())
+        # Aggiunto .str.strip() ovunque per immunizzare da spazi vuoti invisibili in Excel/CSV
+        m = (tariffs["Tipo"].astype(str).str.strip().str.lower().eq(str(tipo).strip().lower())
              & tariffs["Livello_o_Tipo"].astype(str).str.strip().str.lower().eq(str(key).strip().lower())
-             & tariffs["Attivo"].astype(str).str.upper().eq("SI"))
+             & tariffs["Attivo"].astype(str).str.strip().str.upper().eq("SI"))
 
         if contract is not None and str(contract).strip():
             m_exact = m & tariffs["Contratto"].astype(str).str.strip().eq(str(contract).strip())
@@ -956,13 +955,14 @@ try:
         return txt(value)[:5]
 
     def ing_compute(df_ing, tariffs, operators, vehicles, default_ccnl, code_map, saved_keys, target_sub):
-        """Calcola costi per ogni turno: ore x costo orario di ogni addetto e ore x costo orario del mezzo."""
+        """Calcola costi per ogni turno: usa i livelli 'Nr. Ope' e 'Nr. Aut' come base per le tariffe."""
         overhead_pct = general_rate(tariffs, "Overhead", 15.0)
         op_map = {}
         for _, r in operators.iterrows():
             for k in mat_keys(r["Matricola"]): op_map.setdefault(k, r)
         veh_map = {plate_key(r["Targa"]): r for _, r in vehicles.iterrows() if plate_key(r["Targa"])}
-        mezzo_tipi = tariffs.loc[tariffs["Tipo"].str.lower().eq("mezzo"), "Livello_o_Tipo"].astype(str)
+        
+        mezzo_tipi = tariffs.loc[tariffs["Tipo"].astype(str).str.strip().str.lower().eq("mezzo"), "Livello_o_Tipo"].astype(str)
         veh_types_lower = {norm_txt(x): x for x in mezzo_tipi}
         rows, people_rows, skipped = [], [], 0
 
@@ -971,6 +971,7 @@ try:
             if ore <= 0:
                 skipped += 1
                 continue
+                
             comune = txt(row.get("Comune"))
             provincia = txt(row.get("Provincia"))
             data = pd.to_datetime(row.get("Data"), errors="coerce")
@@ -980,19 +981,41 @@ try:
             ricavo_totale = ton * ricavo_ton
             problemi = []
 
-            # --- personale: ore x costo orario del livello di ogni addetto ---
-            matricole = split_matricole(row.get("Matricole"))
+            # ---------------------------------------------------------
+            # 1. CALCOLO PERSONALE (Legge i livelli scritti in Nr. Ope / Nr. Aut)
+            # ---------------------------------------------------------
             persone = []
-            for m in matricole:
+            liv_aut, costo_h_aut = "-", 0.0
+            liv_sup, costo_h_sup = "-", 0.0
+            
+            val_aut = txt(row.get("Nr_Aut"))
+            val_ope = txt(row.get("Nr_Ope"))
+            livelli_excel_disponibili = []
+            if val_aut and val_aut.lower() != "nan": livelli_excel_disponibili.append(val_aut)
+            if val_ope and val_ope.lower() != "nan": livelli_excel_disponibili.append(val_ope)
+
+            matricole = split_matricole(row.get("Matricole"))
+            
+            for idx, m in enumerate(matricole):
                 found = next((op_map[k] for k in mat_keys(m) if k in op_map), None)
+                livello_fallback = livelli_excel_disponibili[idx] if idx < len(livelli_excel_disponibili) else ""
+                
                 if found is None:
-                    persone.append(dict(Matricola=m, Operatore=m, Contratto="", Livello="", Rate=0.0, Stato="DA ASSEGNARE"))
-                    problemi.append(f"matricola {m} non in anagrafica")
+                    if livello_fallback:
+                        rate = labor_rate(tariffs, default_ccnl, livello_fallback)
+                        stato = "USATO LIVELLO EXCEL" if rate > 0 else "COSTO DA CONFIGURARE"
+                        if rate <= 0: problemi.append(f"costo orario 0 per {default_ccnl} {livello_fallback}")
+                        persone.append(dict(Matricola=m, Operatore=f"Matr. {m}", Contratto=default_ccnl, Livello=livello_fallback, Rate=rate, Stato=stato))
+                    else:
+                        persone.append(dict(Matricola=m, Operatore=m, Contratto="", Livello="", Rate=0.0, Stato="DA ASSEGNARE"))
+                        problemi.append(f"matricola {m} non in anagrafica")
                     continue
+                    
                 contratto = txt(found["Contratto"]) or default_ccnl
-                livello = txt(found["Livello"])
+                livello = txt(found["Livello"]) or livello_fallback
                 nome = f'{txt(found["Nome"])} {txt(found["Cognome"])}'.strip() or m
-                if livello in CONTRACTS.get(contratto, []):
+                
+                if livello in CONTRACTS.get(contratto, []) or livello:
                     rate = labor_rate(tariffs, contratto, livello)
                     stato = "MATCH ANAGRAFICA" if rate > 0 else "COSTO DA CONFIGURARE"
                     if rate <= 0: problemi.append(f"costo orario 0 per {contratto} {livello}")
@@ -1000,22 +1023,36 @@ try:
                     rate, stato = 0.0, "DA ASSEGNARE"
                     problemi.append(f"livello mancante o non valido per matricola {m}")
                 persone.append(dict(Matricola=m, Operatore=nome, Contratto=contratto, Livello=livello, Rate=rate, Stato=stato))
-            if not persone:  # formato vecchio: livelli scritti direttamente nel file
-                for ruolo, col in (("Autista", "Liv_Autista"), ("Supporto", "Liv_Supporto")):
-                    lv = txt(row.get(col))
-                    if lv and lv.lower() != "nan":
-                        rate = labor_rate(tariffs, default_ccnl, lv)
-                        persone.append(dict(Matricola="", Operatore=ruolo, Contratto=default_ccnl, Livello=lv, Rate=rate, Stato="MATCH ANAGRAFICA" if rate > 0 else "COSTO DA CONFIGURARE"))
-                        if rate <= 0: problemi.append(f"costo orario 0 per livello {lv}")
+                
+            if not persone:  # formato vecchio (file REND_32_PRATO classico senza matricole)
+                if val_aut and val_aut.lower() != "nan":
+                    rate = labor_rate(tariffs, default_ccnl, val_aut)
+                    persone.append(dict(Matricola="", Operatore="Autista", Contratto=default_ccnl, Livello=val_aut, Rate=rate, Stato="MATCH TARIFFE" if rate > 0 else "COSTO DA CONFIGURARE"))
+                    if rate <= 0: problemi.append(f"costo orario 0 per livello {val_aut}")
+                if val_ope and val_ope.lower() != "nan":
+                    rate = labor_rate(tariffs, default_ccnl, val_ope)
+                    persone.append(dict(Matricola="", Operatore="Supporto", Contratto=default_ccnl, Livello=val_ope, Rate=rate, Stato="MATCH TARIFFE" if rate > 0 else "COSTO DA CONFIGURARE"))
+                    if rate <= 0: problemi.append(f"costo orario 0 per livello {val_ope}")
+                    
             if not persone: problemi.append("nessun addetto indicato")
+            
             attesi = int(parse_num(row.get("Nr_Ope")) + parse_num(row.get("Nr_Aut")))
             if matricole and attesi and len(matricole) != attesi:
                 problemi.append(f"{len(matricole)} matricole ma {attesi} addetti dichiarati")
 
             costo_personale = sum(ore * p["Rate"] for p in persone)
-            n_persone = len(persone) or max(attesi, 1)
+            n_persone = max(len(persone), 1)
 
-            # --- mezzo: ore x costo orario del tipo mezzo ---
+            if len(persone) > 0:
+                liv_aut = persone[0]["Livello"] or persone[0]["Matricola"] or "-"
+                costo_h_aut = persone[0]["Rate"]
+            if len(persone) > 1:
+                liv_sup = persone[1]["Livello"] or persone[1]["Matricola"] or "-"
+                costo_h_sup = sum(p["Rate"] for p in persone[1:])
+
+            # ---------------------------------------------------------
+            # 2. CALCOLO MEZZO
+            # ---------------------------------------------------------
             targa = txt(row.get("Targa"))
             cod = ing_cod(row.get("Mezzo_Cod"))
             found_v = veh_map.get(plate_key(targa)) if targa else None
@@ -1023,12 +1060,16 @@ try:
             if found_v is not None and txt(found_v["Tipo"]): tipo = txt(found_v["Tipo"])
             elif cod and norm_txt(cod) in veh_types_lower: tipo = veh_types_lower[norm_txt(cod)]
             elif cod and code_map.get(cod): tipo = code_map[cod]
+            
             costo_h_mezzo = vehicle_rate(tariffs, tipo) if tipo else 0.0
             stato_v = "MATCH ANAGRAFICA" if found_v is not None and txt(found_v["Tipo"]) else ("DA CODICE FILE" if tipo else "DA ASSEGNARE")
             if not tipo: problemi.append("tipo mezzo non assegnato")
             elif costo_h_mezzo <= 0: problemi.append(f"costo orario 0 per mezzo {tipo}")
             costo_mezzo = costo_h_mezzo * ore
 
+            # ---------------------------------------------------------
+            # 3. TOTALI
+            # ---------------------------------------------------------
             if kg > 0 and ricavo_ton <= 0: problemi.append(f"nessun ricavo a tonnellata per {comune}")
 
             overhead = (costo_personale + costo_mezzo) * overhead_pct / 100.0
@@ -1036,19 +1077,32 @@ try:
             margine = ricavo_totale - costo_totale
 
             ini, fin = ing_time(row.get("Inizio")), ing_time(row.get("Fine"))
-            addetti = "-".join(matricole)
+            addetti_str = "-".join(matricole)
             note = (f"Comune: {comune}" + (f" ({provincia})" if provincia else "") + f" | Targa: {targa} | Mezzo: {tipo or cod}"
-                    + f" | Turno: {ini}-{fin} | Addetti: {addetti}")
+                    + f" | Turno: {ini}-{fin} | Addetti: {addetti_str}")
             key = ing_key(data, target_sub, ton, ore, note)
 
             rows.append({
-                "Data": data.date() if pd.notnull(data) else None, "Comune": comune, "Targa": targa, "Mezzo": tipo or (f"cod. {cod}" if cod else "-"),
-                "Addetti": addetti or "-", "Ore": ore, "€/h Personale": sum(p["Rate"] for p in persone), "Costo Personale": costo_personale,
-                "€/h Mezzo": costo_h_mezzo, "Costo Mezzo": costo_mezzo, "Kg": kg, "Ricavo/Ton": ricavo_ton, "Ricavo Totale": ricavo_totale,
-                "Margine": margine, "Già salvato": key in saved_keys, "Problemi": "; ".join(problemi),
+                "Data": data.date() if pd.notnull(data) else None,
+                "Comune": comune,
+                "Liv. Autista": liv_aut,
+                "€/h Autista": costo_h_aut,
+                "Liv. Supporto": liv_sup,
+                "€/h Supporto": costo_h_sup,
+                "Mezzo": tipo or (f"cod. {cod}" if cod else "-"),
+                "€/h Mezzo": costo_h_mezzo,
+                "Ore": ore,
+                "Costo Personale": costo_personale,
+                "Costo Mezzo": costo_mezzo,
+                "Ricavo/Ton": ricavo_ton,
+                "Ricavo Totale": ricavo_totale,
+                "Margine": margine,
+                
+                "Già salvato": key in saved_keys, "Problemi": "; ".join(problemi),
                 "_anomalia": 1 if problemi else 0, "_note": note, "_ton": ton, "_overhead": overhead, "_costo_tot": costo_totale,
-                "_ore_uomo": ore * n_persone, "_tipo": tipo, "_stato_v": stato_v, "_persone": persone,
+                "_ore_uomo": ore * n_persone, "_tipo": tipo, "_stato_v": stato_v, "_persone": persone, "_targa": targa
             })
+            
             for p in persone:
                 people_rows.append({"Data": data.date() if pd.notnull(data) else None, "Targa": targa, "Matricola": p["Matricola"], "Operatore": p["Operatore"],
                                     "Contratto": p["Contratto"], "Livello": p["Livello"], "Ore": ore, "€/h": p["Rate"], "Costo": ore * p["Rate"], "Stato": p["Stato"]})
@@ -1254,12 +1308,15 @@ try:
                                  ("Margine", euro(tot_margine), f"overhead {euro(tot_over)}")]))
 
                 st.subheader("Anteprima elaborazione")
-                sx(st.dataframe, df_res, hide_index=True, column_config={
+                view_df = df_res.copy()
+                view_df.drop(columns=['Già salvato', 'Problemi', '_anomalia', '_note', '_ton', '_overhead', '_costo_tot', '_ore_uomo', '_tipo', '_stato_v', '_persone', '_targa'], inplace=True, errors='ignore')
+                sx(st.dataframe, view_df, hide_index=True, column_config={
                     "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-                    "Ore": st.column_config.NumberColumn(format="%.2f"),
-                    "€/h Personale": st.column_config.NumberColumn(format="€ %.2f"),
-                    "Costo Personale": st.column_config.NumberColumn(format="€ %.2f"),
+                    "€/h Autista": st.column_config.NumberColumn(format="€ %.2f"),
+                    "€/h Supporto": st.column_config.NumberColumn(format="€ %.2f"),
                     "€/h Mezzo": st.column_config.NumberColumn(format="€ %.2f"),
+                    "Ore": st.column_config.NumberColumn(format="%.2f"),
+                    "Costo Personale": st.column_config.NumberColumn(format="€ %.2f"),
                     "Costo Mezzo": st.column_config.NumberColumn(format="€ %.2f"),
                     "Kg": st.column_config.NumberColumn(format="%.0f"),
                     "Ricavo/Ton": st.column_config.NumberColumn(format="€ %.2f"),
@@ -1327,7 +1384,7 @@ try:
                                               "Matricola": p["Matricola"], "Operatore": p["Operatore"], "Contratto": p["Contratto"], "Livello": p["Livello"],
                                               "Ore": r["Ore"], "Costo Orario": p["Rate"], "Costo Totale": r["Ore"] * p["Rate"], "Stato Match": p["Stato"]})
                         veh_rows_save.append({"ID Consuntivo": cid, "Certificazione ID": "", "Data": d, "Servizio": "Ingombranti", "Sottoservizio": target_sub,
-                                              "Targa": r["Targa"], "Attrezzatura": "", "Tipo": r["_tipo"], "Ore": r["Ore"], "Costo Orario": r["€/h Mezzo"],
+                                              "Targa": r.get("_targa", ""), "Attrezzatura": "", "Tipo": r["_tipo"], "Ore": r["Ore"], "Costo Orario": r["€/h Mezzo"],
                                               "Costo Totale": r["Costo Mezzo"], "Stato Match": r["_stato_v"]})
                     append_rows("services", read_services, pd.DataFrame(rows_to_save))
                     append_rows("personnel", read_personnel, pd.DataFrame(pers_rows))
@@ -1589,7 +1646,7 @@ try:
             if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
             else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-    html('<div class="foot">Cristoforo Control Room V8.19</div>')
+    html('<div class="foot">Cristoforo Control Room V8.20</div>')
 
 except Exception as global_error:
     st.error("ERRORE CRITICO! L'applicazione non riesce a partire.")
