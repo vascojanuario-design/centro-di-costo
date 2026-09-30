@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # ============================================================
-# CRISTOFORO | CONTROL ROOM V8.13
-# Lettore Universale Excel (Auto-Header e Auto-Map Colonne)
-# Fix formati DateTime di Excel per le Ore.
+# CRISTOFORO | CONTROL ROOM V8.14
+# Fix: Lector Universal estricto para evitar falsos positivos
+# Remoción automática de columnas duplicadas
 # ============================================================
 import hashlib
 import hmac
@@ -260,10 +260,8 @@ def parse_num(value):
     try: return float(text)
     except ValueError: return 0.0
 
-# --- FIX FORMATI ORE DI EXCEL (RISOLVE IL PROBLEMA DEGLI 0.00) ---
 def parse_hours(value, excel_fraction=False):
     if value is None: return 0.0
-    # Gestione formati DateTime nascosti di Excel
     if isinstance(value, (datetime, pd.Timestamp)): 
         return value.hour + (value.minute / 60.0) + (value.second / 3600.0)
     if isinstance(value, dtime): 
@@ -518,159 +516,9 @@ def general_rate(tariffs, name, default=0.0):
     v = rate_lookup(tariffs, "generale", name)
     return default if v is None else v
 
-def _has_term(text, term): return re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", text) is not None
-
-def rows_for_subservice(cert, subservice):
-    if cert.empty: return cert.copy()
-    target = norm_txt(subservice)
-    longer = [norm_txt(s) for s in ALL_SUBSERVICES if target in norm_txt(s) and norm_txt(s) != target]
-    def ok(row):
-        parts = [norm_txt(p) for p in re.split(r"[;,/|]+", str(row["Comuni"])) if p.strip()]
-        if target in parts: return True
-        blob = norm_txt(f'{row["Centro di Costo"]} {row["Descrizione"]}')
-        return _has_term(blob, target) and not any(_has_term(blob, lg) for lg in longer)
-    return cert[cert.apply(ok, axis=1)].copy()
-
-def rows_for_service(cert, service):
-    if cert.empty:
-        out = cert.copy(); out["Attribuzione"] = pd.Series(dtype=object); return out
-    svc = norm_txt(service)
-    others = [norm_txt(s) for s in SERVICE_TREE if norm_txt(s) != svc]
-    blob = (cert["Centro di Costo"].astype(str) + " " + cert["Descrizione"].astype(str)).map(norm_txt)
-    this = blob.map(lambda t: _has_term(t, svc))
-    other = blob.map(lambda t: any(_has_term(t, o) for o in others))
-    out = cert[this | ~other].copy()
-    out["Attribuzione"] = np.where(this[out.index], "Servizio indicato nel file", "Solo sottoservizio")
-    return out
-
-PERIODS = ["Tutto", "Ultimi 30 giorni", "Ultimi 90 giorni", "Anno corrente"]
-
-def apply_period(df, label):
-    if label == "Tutto" or df.empty: return df.copy(), df.iloc[0:0].copy()
-    today = pd.Timestamp.today().normalize()
-    if label == "Anno corrente": start, prev_start, prev_end = pd.Timestamp(today.year, 1, 1), pd.Timestamp(today.year - 1, 1, 1), today - pd.DateOffset(years=1)
-    else:
-        days = 30 if label == "Ultimi 30 giorni" else 90
-        start = today - pd.Timedelta(days=days - 1); prev_start, prev_end = start - pd.Timedelta(days=days), start - pd.Timedelta(days=1)
-    cur = df[df["Data"].between(start, today + pd.Timedelta(days=1))].copy()
-    prev = df[df["Data"].between(prev_start, prev_end + pd.Timedelta(days=1))].copy()
-    return cur, prev
-
-def series_of(df, col, n=30):
-    if df.empty or df["Data"].isna().all(): return []
-    return df.dropna(subset=["Data"]).groupby("Data")[col].sum().sort_index().tail(n).tolist()
-
-def totals(df):
-    if df.empty: return dict(revenue=0.0, costs=0.0, margin=0.0, labor_h=0.0, vehicle_h=0.0, tonnes=0.0)
-    return dict(revenue=safe_sum(df["Ricavi"]), costs=safe_sum(df["Costo Totale"]), margin=safe_sum(df["Margine"]),
-                labor_h=safe_sum(df["Ore Uomo"]), vehicle_h=safe_sum(df["Ore Mezzi"]), tonnes=safe_sum(df["Tonnellate"]))
-
-def spark(values, color=MOSS, w=120, h=36, stroke=2.0):
-    v = [float(x) for x in values if pd.notna(x)]
-    if len(v) < 2: return ""
-    lo, hi = min(v), max(v)
-    rng = (hi - lo) or 1.0
-    pts = [(i / (len(v) - 1) * w, h - 3 - (x - lo) / rng * (h - 8)) for i, x in enumerate(v)]
-    line = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    gid = "g" + hashlib.md5((color + line).encode()).hexdigest()[:8]
-    return (f'<svg viewBox="0 0 {w} {h}" preserveAspectRatio="none"><defs><linearGradient id="{gid}" x1="0" x2="0" y1="0" y2="1">'
-            f'<stop offset="0" stop-color="{color}" stop-opacity=".30"/><stop offset="1" stop-color="{color}" stop-opacity="0"/></linearGradient></defs>'
-            f'<polygon points="0,{h} {line} {w},{h}" fill="url(#{gid})"/>'
-            f'<polyline points="{line}" fill="none" stroke="{color}" stroke-width="{stroke}" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>')
-
-def delta_badge(cur, prev, good_up=True):
-    if not prev: return ""
-    change = (cur - prev) / abs(prev) * 100
-    good = (change >= 0) == good_up
-    arrow = "▲" if change >= 0 else "▼"
-    return f'<span class="delta {"ok" if good else "bad"}">{arrow} {abs(change):.1f}%</span>'.replace(".", ",", 1)
-
-def page_head(title, subtitle):
-    html(f'<div class="page-head"><div><div class="page-title">{title}</div><div class="page-sub">{subtitle}</div></div>'
-         f'<div class="who"><i></i>{st.session_state.nome}</div></div>')
-
-def section(title, note=""):
-    html(f'<div class="section-title">{title}</div>' + (f'<div class="section-note">{note}</div>' if note else ""))
-
-def chart_head(title, sub=""):
-    html(f'<div class="chart-head"><div class="panel-head">{title}</div>' + (f'<div class="panel-sub">{sub}</div>' if sub else "") + '</div>')
-
-def stat_html(label, value, note="", spark_svg="", tone="", delta=""):
-    return (f'<div class="stat {tone}"><div class="stat-label">{label}</div><div class="stat-value">{value}</div>'
-            f'<div class="stat-note">{note}{delta}</div><div class="stat-spark">{spark_svg}</div></div>')
-
-def strip_html(cells, cols=None):
-    body = "".join(f'<div class="cell"><div class="cell-label">{a}</div><div class="cell-value">{b}</div><div class="cell-note">{c}</div></div>' for a, b, c in cells)
-    return f'<div class="strip" style="grid-template-columns:repeat({cols or len(cells)},1fr)">{body}</div>'
-
-def style_chart(chart, height=280):
-    return (chart.properties(height=height, background="transparent").configure_view(strokeWidth=0)
-            .configure_axis(labelColor=MUTE, titleColor=MUTE, gridColor="#E6ECE8", domainColor=LINE, tickColor=LINE, labelFont="IBM Plex Sans", titleFont="IBM Plex Sans", labelFontSize=12)
-            .configure_legend(labelColor=INK, labelFont="IBM Plex Sans", labelFontSize=12, symbolType="circle"))
-
-def show_chart(chart): sx(st.altair_chart, chart)
-
-def trend_chart(df):
-    d = df.dropna(subset=["Data"])
-    if d.empty: return None
-    monthly = (d["Data"].max() - d["Data"].min()).days > 75
-    g = d.groupby(pd.Grouper(key="Data", freq="MS" if monthly else "D"))[["Ricavi", "Costo Totale", "Margine"]].sum().reset_index()
-    if not monthly: g = g[(g[["Ricavi", "Costo Totale", "Margine"]] != 0).any(axis=1)]
-    g = g.rename(columns={"Costo Totale": "Costi"}).melt("Data", var_name="Voce", value_name="Euro")
-    chart = alt.Chart(g).mark_line(strokeWidth=2.6, interpolate="monotone", point=alt.OverlayMarkDef(size=44, filled=True)).encode(
-        x=alt.X("Data:T", title=None, axis=alt.Axis(format="%b %Y" if monthly else "%d/%m", labelOverlap=True)),
-        y=alt.Y("Euro:Q", title=None, axis=alt.Axis(format="~s")),
-        color=alt.Color("Voce:N", scale=alt.Scale(domain=["Ricavi", "Costi", "Margine"], range=[MOSS, TIDE, SIGNAL]), legend=alt.Legend(orient="top", title=None)),
-        tooltip=[alt.Tooltip("Data:T", format="%d/%m/%Y"), "Voce:N", alt.Tooltip("Euro:Q", format=",.2f")])
-    return style_chart(chart, 290)
-
-def donut_chart(mix):
-    d = pd.DataFrame({"Voce": list(mix.keys()), "Euro": list(mix.values())})
-    d = d[d["Euro"] > 0]
-    if d.empty: return None
-    chart = alt.Chart(d).mark_arc(innerRadius=64, outerRadius=104, cornerRadius=4, padAngle=0.03).encode(
-        theta=alt.Theta("Euro:Q"),
-        color=alt.Color("Voce:N", scale=alt.Scale(domain=["Personale", "Mezzi", "Overhead"], range=[MOSS, TIDE, SIGNAL]), legend=alt.Legend(orient="bottom", title=None)),
-        tooltip=["Voce:N", alt.Tooltip("Euro:Q", format=",.2f")])
-    return style_chart(chart, 250)
-
-def hbar_chart(d, label_col, value_col, title=None, signed=False, color=TIDE):
-    if d.empty: return None
-    enc_color = alt.condition(f"datum['{value_col}'] >= 0", alt.value(MOSS), alt.value(ALERT)) if signed else alt.value(color)
-    chart = alt.Chart(d).mark_bar(cornerRadiusEnd=4, size=17).encode(
-        y=alt.Y(f"{label_col}:N", sort="-x", title=None), x=alt.X(f"{value_col}:Q", title=title, axis=alt.Axis(format="~s")),
-        color=enc_color, tooltip=[label_col, alt.Tooltip(f"{value_col}:Q", format=",.2f")])
-    return style_chart(chart, max(120, 34 * len(d) + 30))
-
-for _key, _value in {"logged": False, "username": "", "nome": "", "ruolo": "", "allowed_subservices": [], "default_pwd": False, "cert_df": pd.DataFrame(), "cert_file": "", "cert_import_id": "", "cert_sig": ""}.items():
-    if _key not in st.session_state: st.session_state[_key] = _value
-
-if not st.session_state.logged:
-    html('<div class="login"><div class="brand-name">Cristoforo<b>.</b></div><p>Controllo di ore, mezzi e costi dei servizi. Accedi per aprire la Control Room.</p></div>')
-    _, mid, _ = st.columns([1, 1.25, 1])
-    with mid:
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        if sx(st.button, "Accedi", type="primary"):
-            users_df = read_users()
-            match = users_df[users_df["username"].eq(username.strip())]
-            if match.empty or not check_password(match.iloc[0]["password"], password): st.error("Username o password non corretti.")
-            else:
-                row = match.iloc[0]
-                if not str(row["password"]).startswith("pbkdf2$"):  
-                    users_df.loc[match.index[0], "password"] = hash_password(password)
-                    save_csv(users_df, FILES["users"])
-                st.session_state.update(logged=True, username=str(row["username"]), nome=str(row["nome"]), ruolo=str(row["ruolo"]), allowed_subservices=split_access(row["autorizzazioni"]), default_pwd=DEFAULT_PASSWORDS.get(str(row["username"])) == password)
-                st.rerun()
-    st.stop()
-
-operators = read_operators()
-vehicles = read_vehicles()
-tariffs = read_tariffs()
-services_df = read_services()
-personnel_detail = read_personnel()
-vehicle_detail = read_vehicle_detail()
-
+# ============================================================
+# INTERFACCIA E DASHBOARD
+# ============================================================
 PAGE_LABELS = {"Dashboard": "Dashboard", "Ingombranti": "Importa Ingombranti", "Consuntivazione": "Nuovo consuntivo", "Economico": "Centro di costo", "Anagrafiche": "Anagrafiche", "Tariffari": "Tariffe e contratti", "Accessi": "Accessi"}
 pages = ["Dashboard", "Ingombranti", "Consuntivazione", "Economico"] + (["Anagrafiche", "Tariffari", "Accessi"] if is_admin() else [])
 
@@ -687,20 +535,16 @@ with st.sidebar:
         st.rerun()
 
 PAGE_META = {
-    "Dashboard": ("Control Room", "Ricavi, costi, ore e margine dei servizi in un colpo d'occhio."),
+    "Dashboard": ("Control Room", "Ricavi, costi, ore e margine dei servicios en un solo vistazo."),
     "Ingombranti": ("Raccolta Ingombranti", "Import file Excel e calcolo automatico tariffe universale."),
-    "Consuntivazione": ("Nuovo consuntivo", "Collega la certificazione a un servizio, controlla il costo e salva il centro di costo."),
-    "Economico": ("Centro di costo", "Ricavi, costi e margine per servizio, sottoservizio, operatore e mezzo."),
-    "Anagrafiche": ("Anagrafiche", "Operatori con contratto e livello, mezzi con tipologia."),
-    "Tariffari": ("Tariffe e contratti", "Gestisci costo orario personale, costo orario mezzi e Ricavo a Tonnellata per comune."),
-    "Accessi": ("Accessi", "Utenti, password e sottoservizi autorizzati."),
+    "Consuntivazione": ("Nuovo consuntivo", "Conecta la certificación a un servicio, controla el costo y guarda el centro de costos."),
+    "Economico": ("Centro di costo", "Ingresos, costos y margen por servicio, subservicio, operador y vehículo."),
+    "Anagrafiche": ("Anagrafiche", "Operadores con contrato y nivel, vehículos con tipología."),
+    "Tariffari": ("Tariffe e contratti", "Gestiona costo horario de personal, vehículos e ingresos por tonelada."),
+    "Accessi": ("Accessi", "Usuarios, contraseñas y subservicios autorizados."),
 }
 page_head(*PAGE_META[page])
 if st.session_state.get("flash"): st.success(st.session_state.pop("flash"))
-
-# ============================================================
-# DASHBOARD
-# ============================================================
 
 if page == "Dashboard":
     base = authorized(services_df)
@@ -719,7 +563,7 @@ if page == "Dashboard":
     m_pct = t["margin"] / t["revenue"] * 100 if t["revenue"] else 0.0
     scope_label = sub_filter if sub_filter != "Tutti" else (service_filter if service_filter != "Tutti" else "di tutte le attività")
 
-    if base.empty: st.info("Non ci sono ancora consuntivi salvati nel database.")
+    if base.empty: st.info("No hay informes guardados en la base de datos todavía.")
     s_label, s_text, s_class = status_for_margin(t["margin"], m_pct, not cur.empty)
     vs_prev = delta_badge(t["margin"], p["margin"]) + (' <span style="opacity:.75">sul periodo precedente</span>' if p["margin"] else "")
     left, right = st.columns([1, 1.55])
@@ -745,26 +589,26 @@ if page == "Dashboard":
     with a:
         chart_head("Ricavi, costi e margine")
         ch = trend_chart(cur)
-        show_chart(ch) if ch is not None else st.info("Servono consuntivi con data per mostrare l'andamento.")
+        show_chart(ch) if ch is not None else st.info("Se necesitan informes con fecha para mostrar la tendencia.")
     with b:
         chart_head("Da cosa sono fatti i costi")
         mix = {"Personale": safe_sum(cur["Costo Personale"]) if not cur.empty else 0, "Mezzi": safe_sum(cur["Costo Mezzi"]) if not cur.empty else 0, "Overhead": safe_sum(cur["Overhead"]) if not cur.empty else 0}
         ch = donut_chart(mix)
-        show_chart(ch) if ch is not None else st.info("Nessun costo nel periodo.")
+        show_chart(ch) if ch is not None else st.info("No hay costos en el período.")
 
 # ============================================================
 # MODULO INGOMBRANTI (LETTORE UNIVERSALE EXCEL)
 # ============================================================
 elif page == "Ingombranti":
-    st.info("Carica il file Excel mensile. Il Lettore Universale troverà da solo le colonne anche se cambiano nome o posizione.")
+    st.info("Carga el archivo Excel mensual. El Lector Universal encontrará las columnas por sí solo, incluso si cambian de nombre o posición.")
     col_a, col_b = st.columns([1, 1])
     
     file_ing = col_a.file_uploader("Carica file Ingombranti", type=["xlsx", "xls"])
-    selected_ccnl = col_b.selectbox("Scegli il CCNL di Riferimento", options=list(CONTRACTS.keys()), help="Indica in quale listino cercare i livelli del personale.")
+    selected_ccnl = col_b.selectbox("Scegli il CCNL di Riferimento", options=list(CONTRACTS.keys()), help="Indica en qué lista buscar los niveles del personal.")
 
     if file_ing:
         try:
-            # 1. Ricerca Automatica dell'Intestazione (Header)
+            # 1. Búsqueda automática del encabezado (Header)
             excel_file = pd.ExcelFile(file_ing)
             sheet_name = excel_file.sheet_names[0]
             df_temp = pd.read_excel(file_ing, sheet_name=sheet_name, header=None, nrows=20)
@@ -779,40 +623,43 @@ elif page == "Ingombranti":
             file_ing.seek(0)
             df_ing = pd.read_excel(file_ing, sheet_name=sheet_name, header=header_idx)
             
-            # 2. Mappatura Elastica (Universal Mapping)
+            # 2. Mapeo Elástico y Estricto (Universal Mapping) - CORREGIDO
             cols_lower = {c: str(c).lower().replace('\n', ' ').strip() for c in df_ing.columns}
             rename_map = {}
             for orig, lower in cols_lower.items():
-                if 'data' in lower and 'creaz' not in lower: rename_map[orig] = 'Data'
+                if lower == 'data' or lower.startswith('data '): rename_map[orig] = 'Data'
                 elif 'comune' in lower: rename_map[orig] = 'Comune'
                 elif 'provincia' in lower: rename_map[orig] = 'Provincia'
-                elif ('autista' in lower and 'nr' not in lower) or 'livello aut' in lower: rename_map[orig] = 'Livello_Autista'
-                elif 'supporto' in lower or 'livello sup' in lower: rename_map[orig] = 'Livello_Supporto'
+                elif ('autista' in lower and 'nr' not in lower) or 'operatore' in lower: rename_map[orig] = 'Livello_Autista'
+                elif 'supporto' in lower: rename_map[orig] = 'Livello_Supporto'
                 elif 'mezzo' in lower or 'tipologia' in lower: rename_map[orig] = 'Mezzo'
-                elif 'h/turno' in lower or 'ore' in lower or 'durata' in lower: rename_map[orig] = 'Ore'
+                elif 'h/turno' in lower or lower == 'ore' or 'tot. h' in lower or 'durata' in lower: rename_map[orig] = 'Ore'
                 elif 'quantit' in lower or 'kg' in lower or 'peso' in lower: rename_map[orig] = 'Kg'
                 elif 'servizio' in lower: rename_map[orig] = 'Servizio'
 
             df_ing.rename(columns=rename_map, inplace=True)
             
-            # 3. Controllo Colonne Minime e Debug
+            # Seguro anticaídas: elimina columnas duplicadas manteniendo la primera
+            df_ing = df_ing.loc[:, ~df_ing.columns.duplicated()]
+            
+            # 3. Control de columnas mínimas
             missing_cols = [c for c in ['Data', 'Comune'] if c not in df_ing.columns]
             if missing_cols:
-                st.error(f"Errore: Impossibile trovare le colonne base nel file.")
-                with st.expander("🛠️ Apri per vedere il Debug Colonne"):
-                    st.write("Ho trovato queste colonne nell'Excel alla riga", header_idx)
+                st.error(f"Error: Imposible encontrar las columnas base en el archivo.")
+                with st.expander("🛠️ Abre para ver el Debug de Columnas"):
+                    st.write(f"Encontré estas columnas en el Excel en la fila {header_idx}:")
                     st.write(list(df_ing.columns))
                 st.stop()
                 
             df_ing = df_ing.dropna(subset=['Data', 'Comune'])
             
             if df_ing.empty:
-                st.warning("Nessun dato valido trovato sotto le colonne Data e Comune.")
+                st.warning("No se encontraron datos válidos bajo las columnas Data y Comune.")
             else:
-                st.success(f"File interpretato perfettamente! (Intestazione trovata alla riga {header_idx + 1}). Elaborazione in corso...")
+                st.success(f"¡Archivo interpretado perfectamente! (Encabezado encontrado en la fila {header_idx + 1}). Procesando...")
                 
-                with st.expander("🛠️ Debug Colonne (Clicca per nascondere)"):
-                    st.write("Mapping applicato:", rename_map)
+                with st.expander("🛠️ Debug de Columnas (Haz clic para ocultar)"):
+                    st.write("Mapeo aplicado para asegurar que el sistema lea todo correctamente:", rename_map)
                 
                 risultati = []
                 overhead_pct = general_rate(tariffs, "Overhead", 15.0)
@@ -899,7 +746,7 @@ elif page == "Ingombranti":
                 
                 anomalie_tot = df_res['Anomalie'].sum()
                 if anomalie_tot > 0:
-                    st.warning(f"ATTENZIONE: {anomalie_tot} righe presentano costi orari a 0,00 €. Verifica nel menu 'Tariffe e contratti' di aver salvato l'importo per il livello o il mezzo mostrato qui sopra.")
+                    st.warning(f"ATENCIÓN: {anomalie_tot} filas presentan costos horarios a 0,00 €. Verifica en el menú 'Tariffe e contratti' haber guardado el importe para el nivel o vehículo.")
                 
                 if sx(st.button, "Salva tutti come Centri di Costo", type="primary"):
                     rows_to_save = []
@@ -920,24 +767,18 @@ elif page == "Ingombranti":
                         })
                         
                     append_rows("services", read_services, pd.DataFrame(rows_to_save))
-                    st.session_state.flash = f"Completato! {len(rows_to_save)} centri di costo ingombranti salvati nel sistema."
+                    st.session_state.flash = f"¡Completado! {len(rows_to_save)} centros de costo de voluminosos guardados en el sistema."
                     st.rerun()
                     
         except Exception as e:
-            st.error(f"Errore durante l'elaborazione del file: {e}")
+            st.error(f"Error durante el procesamiento del archivo: {e}")
 
 # ============================================================
-# CONSUNTIVAZIONE E CERTIFICAZIONI STANDARD
-# ============================================================
-elif page == "Consuntivazione":
-    st.info("Modulo per certificazioni standard")
-
-# ============================================================
-# PAGINE ANALISI ED IMPOSTAZIONI
+# PAGINAS DE ANALISIS Y CONFIGURACION
 # ============================================================
 elif page == "Economico":
     df = authorized(services_df)
-    if df.empty: st.info("Non ci sono ancora consuntivi."); st.stop()
+    if df.empty: st.info("No hay informes guardados en la base de datos todavía."); st.stop()
     a, b = st.columns([1, 1.4])
     service_filter = a.selectbox("Servizio", ["Tutti"] + list(SERVICE_TREE))
     subs = ALL_SUBSERVICES if service_filter == "Tutti" else SERVICE_TREE[service_filter]
@@ -960,7 +801,7 @@ elif page == "Economico":
         show_chart(hbar_chart(g, "Centro di Costo", "Margine", signed=True))
     with tab_people:
         pdx = scoped(personnel_detail)
-        if pdx.empty: st.info("Nessun dettaglio del personale.")
+        if pdx.empty: st.info("Ningún detalle del personal.")
         else:
             l, r = st.columns(2)
             with l:
@@ -971,7 +812,7 @@ elif page == "Economico":
             sx(st.dataframe, by_op.sort_values("Costo", ascending=False), hide_index=True, column_config={"Ore": st.column_config.NumberColumn(format="%.2f"), "Costo": st.column_config.NumberColumn(format="€ %.2f")})
     with tab_veh:
         vdx = scoped(vehicle_detail)
-        if vdx.empty: st.info("Nessun dettaglio dei mezzi.")
+        if vdx.empty: st.info("Ningún detalle de los vehículos.")
         else:
             l, r = st.columns(2)
             with l:
@@ -985,13 +826,13 @@ elif page == "Anagrafiche":
         edited = sx(st.data_editor, operators, num_rows="dynamic", hide_index=True, key="operators_editor", column_config={"Contratto": st.column_config.SelectboxColumn(options=[""] + list(CONTRACTS)), "Livello": st.column_config.SelectboxColumn(options=[""] + ALL_LEVELS)})
         dup = edited[edited["Matricola"].map(txt).ne("") & edited["Matricola"].duplicated(keep=False)]
         if not dup.empty: st.error("Matricole ripetute!")
-        if sx(st.button, "Salva operatori", type="primary", disabled=not dup.empty): save_csv(edited.fillna(""), FILES["operators"]); st.session_state.flash = "Operatori salvati."; st.rerun()
+        if sx(st.button, "Salva operatori", type="primary", disabled=not dup.empty): save_csv(edited.fillna(""), FILES["operators"]); st.session_state.flash = "Operadores guardados."; st.rerun()
     with t2:
         types = sorted(set(DEFAULT_VEHICLE_TYPES + tariffs.loc[tariffs["Tipo"].str.lower().eq("mezzo"), "Livello_o_Tipo"].astype(str).tolist()))
         edited = sx(st.data_editor, vehicles, num_rows="dynamic", hide_index=True, key="vehicles_editor", column_config={"Tipo": st.column_config.SelectboxColumn(options=[""] + types)})
         keys = edited["Targa"].map(plate_key); dup = edited[keys.ne("") & keys.duplicated(keep=False)]
         if not dup.empty: st.error("Targhe ripetute!")
-        if sx(st.button, "Salva mezzi", type="primary", disabled=not dup.empty): save_csv(edited.fillna(""), FILES["vehicles"]); st.session_state.flash = "Mezzi salvati."; st.rerun()
+        if sx(st.button, "Salva mezzi", type="primary", disabled=not dup.empty): save_csv(edited.fillna(""), FILES["vehicles"]); st.session_state.flash = "Vehículos guardados."; st.rerun()
 
 elif page == "Tariffari":
     t1, t2, t3, t4 = st.tabs(["Costi Personale", "Costi Mezzi", "Parametri Generali", "Ricavi a Tonnellata (Comuni)"])
@@ -1000,7 +841,7 @@ elif page == "Tariffari":
         if force_contract is not None: edited["Contratto"] = force_contract
         edited["Costo_Orario"] = edited["Costo_Orario"].apply(parse_num); edited["Attivo"] = edited["Attivo"].replace("", "SI").fillna("SI")
         current = read_tariffs()
-        save_csv(pd.concat([current[~current["Tipo"].str.lower().eq(kind)], edited.fillna("")], ignore_index=True), FILES["tariffs"]); st.session_state.flash = "Tariffe aggiornate."; st.rerun()
+        save_csv(pd.concat([current[~current["Tipo"].str.lower().eq(kind)], edited.fillna("")], ignore_index=True), FILES["tariffs"]); st.session_state.flash = "Tarifas actualizadas."; st.rerun()
     with t1:
         edited = sx(st.data_editor, tariffs[tariffs["Tipo"].str.lower().eq("personale")], num_rows="dynamic", hide_index=True, column_config={"Tipo": None, "Contratto": st.column_config.SelectboxColumn("Contratto", options=list(CONTRACTS)), "Livello_o_Tipo": st.column_config.SelectboxColumn("Livello", options=ALL_LEVELS), "Costo_Orario": st.column_config.NumberColumn("Costo orario aziendale (€)", min_value=0.0, step=0.01, format="%.2f"), "Attivo": st.column_config.SelectboxColumn("Attivo", options=["SI", "NO"])})
         if sx(st.button, "Salva costi personale", type="primary", key="s1"): save_group("personale", "Personale", edited)
@@ -1030,7 +871,7 @@ elif page == "Accessi":
     p1, p2, p3 = st.columns([1, 1, 0.6])
     target = p1.selectbox("Utente", users_now["username"].tolist()); new_pw = p2.text_input("Nuova password", type="password"); p3.write("")
     if sx(p3.button, "Aggiorna password"):
-        if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
+        if len(new_pw) < 6: st.error("Almeno 6 caracteres.")
         else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-html('<div class="foot">Cristoforo Control Room V8.13</div>')
+html('<div class="foot">Cristoforo Control Room V8.14</div>')
