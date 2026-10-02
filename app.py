@@ -44,6 +44,8 @@ try:
         "certifications": os.path.join(BASE_DIR, "certificazioni_cristoforo.csv"),
         "cert_rows": os.path.join(BASE_DIR, "certificazioni_righe_cristoforo.csv"),
         "tariffs": os.path.join(BASE_DIR, "tariffe_cristoforo.csv"),
+        "mapping_commesse": os.path.join(BASE_DIR, "mapping_commesse_cristoforo.csv"),
+        "mapping_veicoli": os.path.join(BASE_DIR, "mapping_veicoli_cristoforo.csv"),
     }
 
     SERVICE_TREE = {
@@ -616,6 +618,43 @@ try:
         for key, cols in empties.items():
             if not os.path.exists(FILES[key]): save_csv(pd.DataFrame(columns=cols), FILES[key])
 
+        # Mapping commesse Cantieri Digitali -> Servizio/Sottoservizio
+        if not os.path.exists(FILES["mapping_commesse"]):
+            _default_mapping = [
+                {"Cod Commessa": "CRS_PRATO",                "Servizio": "Porta a Porta",              "Sottoservizio": "Prato"},
+                {"Cod Commessa": "CRS_FIRENZE",               "Servizio": "Raccolta Cartone Selettivo", "Sottoservizio": "Firenze"},
+                {"Cod Commessa": "CRS_INGOMBRANTI-ALIA",      "Servizio": "Ingombranti",                "Sottoservizio": "Prato"},
+                {"Cod Commessa": "CRS_VALLINA",               "Servizio": "Spazzamenti",                "Sottoservizio": "Scandicci"},
+                {"Cod Commessa": "CRS_LUCCA",                 "Servizio": "Porta a Porta",              "Sottoservizio": "Lucca"},
+                {"Cod Commessa": "CRS_SPAZZAMENTI-AREE-VERDI","Servizio": "Spazzamenti",                "Sottoservizio": "Scandicci"},
+                {"Cod Commessa": "CRS_CAMPI_BISENZIO",        "Servizio": "Ingombranti",                "Sottoservizio": "Campi Bisenzio"},
+                {"Cod Commessa": "CRS_CHIANTIGIANA",          "Servizio": "Spazzamenti",                "Sottoservizio": "Scandicci"},
+                {"Cod Commessa": "CRS_CREMONA",               "Servizio": "Porta a Porta",              "Sottoservizio": "Cremona"},
+                {"Cod Commessa": "CRS_VALDARNO",              "Servizio": "",                           "Sottoservizio": ""},
+                {"Cod Commessa": "CRS_MANTOVA",               "Servizio": "Porta a Porta",              "Sottoservizio": "Mantova"},
+                {"Cod Commessa": "CRS_NOVENTA VICENTINA",     "Servizio": "Porta a Porta",              "Sottoservizio": "Noventa"},
+                {"Cod Commessa": "CRS_CAPANNORI",             "Servizio": "Porta a Porta",              "Sottoservizio": "Lucca"},
+                {"Cod Commessa": "CRS_CARTONE PIANA",         "Servizio": "Raccolta Cartone Selettivo", "Sottoservizio": "Piana"},
+                {"Cod Commessa": "CRS_CUNEO PAP",             "Servizio": "Porta a Porta",              "Sottoservizio": ""},
+                {"Cod Commessa": "CRS_UTILYA",                "Servizio": "Trasporti",                  "Sottoservizio": "Alia"},
+                {"Cod Commessa": "CRS_VENETO_TRASP",          "Servizio": "Trasporti",                  "Sottoservizio": "Alia"},
+                {"Cod Commessa": "CRS_EX ELICA",              "Servizio": "",                           "Sottoservizio": ""},
+            ]
+            save_csv(pd.DataFrame(_default_mapping), FILES["mapping_commesse"])
+
+        # Mapping tipo veicolo Cantieri Digitali -> tipo interno tariffe
+        if not os.path.exists(FILES["mapping_veicoli"]):
+            _default_vmap = [
+                {"Tipo Cantieri": "Costipatore 35 q.li",           "Tipo Interno": "35 qt"},
+                {"Tipo Cantieri": "Costipatore 75 q.li",           "Tipo Interno": "5. 75qt Vasca Costipatore"},
+                {"Tipo Cantieri": "Compattatore 2 Assi",           "Tipo Interno": "7. 2 Assi 12/18mc"},
+                {"Tipo Cantieri": "Compattatore 3 Assi",           "Tipo Interno": "8. 3 Assi 21/27mc"},
+                {"Tipo Cantieri": "Porter pianale",                "Tipo Interno": "1. Porter"},
+                {"Tipo Cantieri": "Minicompattatore Posteriore 7MC","Tipo Interno": "6. Monoscocca 10/12Qt"},
+                {"Tipo Cantieri": "Scarrabile",                    "Tipo Interno": "11. 3 Assi Scarrabile"},
+            ]
+            save_csv(pd.DataFrame(_default_vmap), FILES["mapping_veicoli"])
+
         default_tariffs = [{"Tipo": "Personale", "Contratto": c, "Livello_o_Tipo": lv, "Costo_Orario": 0.0, "Attivo": "SI"} for c, levels in CONTRACTS.items() for lv in levels]
         default_tariffs += [{"Tipo": "Mezzo", "Contratto": "", "Livello_o_Tipo": k, "Costo_Orario": v, "Attivo": "SI"} for k, v in DEFAULT_VEHICLE_COSTS.items()]
         default_tariffs += [
@@ -687,6 +726,45 @@ try:
     def read_vehicle_detail():
         cols = ["ID Consuntivo", "Certificazione ID", "Data", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Ore", "Costo Orario", "Costo Totale", "Stato Match"]
         return load_table("vehicle_detail", {"ID Consuntivo": ["id_consuntivo"], "Certificazione ID": ["certificazione_id", "id_certificazione", "id_import"], "Servizio": ["categoria"], "Sottoservizio": ["cantiere", "commessa", "dettaglio"], "Tipo": ["tipo_mezzo"], "Ore": ["ore_lavorate", "hours"], "Costo Orario": ["tariffa"], "Costo Totale": ["costo"], "Stato Match": ["match"]}, cols, text=["ID Consuntivo", "Certificazione ID", "Servizio", "Sottoservizio", "Targa", "Attrezzatura", "Tipo", "Stato Match"], dates=["Data"], hours=["Ore"], numbers=["Costo Orario", "Costo Totale"])
+
+    def normalize_level(raw):
+        """Normalizza livelli Cantieri Digitali: 'LIVELLO 2B' -> '2B', 'livello .B1' -> 'B1'."""
+        if not isinstance(raw, str) or not raw.strip():
+            return str(raw) if raw else ""
+        s = unicodedata.normalize("NFC", raw).strip()
+        s = re.sub(r"(?i)^livello\s*\.?\s*", "", s)
+        s = re.sub(r"[.\s]+", "", s)
+        return s.upper()
+
+    def read_mapping_commesse():
+        cols = ["Cod Commessa", "Servizio", "Sottoservizio"]
+        if not os.path.exists(FILES["mapping_commesse"]):
+            return pd.DataFrame(columns=cols)
+        df = read_csv_flexible(FILES["mapping_commesse"])
+        return ensure(df, cols)[cols].fillna("").copy()
+
+    def read_mapping_veicoli():
+        cols = ["Tipo Cantieri", "Tipo Interno"]
+        if not os.path.exists(FILES["mapping_veicoli"]):
+            return pd.DataFrame(columns=cols)
+        df = read_csv_flexible(FILES["mapping_veicoli"])
+        return ensure(df, cols)[cols].fillna("").copy()
+
+    def commessa_to_service(mapping_df, cod_commessa):
+        """Ritorna (Servizio, Sottoservizio) dalla mappatura."""
+        if mapping_df.empty:
+            return "", ""
+        row = mapping_df[mapping_df["Cod Commessa"].str.strip().str.upper() == str(cod_commessa).strip().upper()]
+        if row.empty:
+            return "", ""
+        return str(row.iloc[0]["Servizio"]).strip(), str(row.iloc[0]["Sottoservizio"]).strip()
+
+    def vehicle_type_map(vmap_df, tipo_cantieri):
+        """Ritorna il tipo interno corrispondente."""
+        if vmap_df.empty:
+            return ""
+        row = vmap_df[vmap_df["Tipo Cantieri"].str.strip().str.lower() == str(tipo_cantieri).strip().lower()]
+        return str(row.iloc[0]["Tipo Interno"]).strip() if not row.empty else ""
 
     def read_imports():
         cols = ["ID Import", "Data Import", "File", "Righe", "Ore", "Stato", "Operatore"]
@@ -1146,8 +1224,8 @@ try:
         parts = [rows_for_subservice(pool, s) for s in st.session_state.allowed_subservices]
         return pd.concat(parts).drop_duplicates(subset="Chiave") if parts else pool.iloc[0:0]
 
-    PAGE_LABELS = {"Dashboard": "Dashboard", "Ingombranti": "Importa Ingombranti", "Consuntivazione": "Nuovo consuntivo", "Certificazioni": "Certificazioni Standard", "Economico": "Centro di costo", "Anagrafiche": "Anagrafiche", "Tariffari": "Tariffe e contratti", "Accessi": "Accessi"}
-    pages = ["Dashboard", "Ingombranti", "Consuntivazione", "Certificazioni", "Economico"] + (["Anagrafiche", "Tariffari", "Accessi"] if is_admin() else [])
+    PAGE_LABELS = {"Dashboard": "Dashboard", "Ingombranti": "Importa Ingombranti", "CantieriDigitali": "Importa Cantieri Digitali", "Consuntivazione": "Nuovo consuntivo", "Certificazioni": "Certificazioni Standard", "Economico": "Centro di costo", "Anagrafiche": "Anagrafiche", "Tariffari": "Tariffe e contratti", "Accessi": "Accessi"}
+    pages = ["Dashboard", "Ingombranti", "CantieriDigitali", "Consuntivazione", "Certificazioni", "Economico"] + (["Anagrafiche", "Tariffari", "Accessi"] if is_admin() else [])
 
     with st.sidebar:
         html('<div class="brand"><div class="brand-name">Cristoforo<b>.</b></div><div class="brand-sub">Control Room</div></div><div class="nav-title">Menu</div>')
@@ -1169,6 +1247,7 @@ try:
         "Economico": ("Centro di costo", "Ricavi, costi e margine per servizio, sottoservizio, operatore e mezzo."),
         "Anagrafiche": ("Anagrafiche", "Operatori con contratto e livello, mezzi con tipologia."),
         "Tariffari": ("Tariffe e contratti", "Gestisci costo orario personale, costo orario mezzi e Ricavo a Tonnellata per comune."),
+        "CantieriDigitali": ("Importa Cantieri Digitali", "Carica i due file Excel mensili di Cantieri Digitali e calcola i costi di personale e mezzi per ogni commessa."),
         "Accessi": ("Accessi", "Utenti, password e sottoservizi autorizzati."),
     }
     page_head(*PAGE_META[page])
@@ -1646,7 +1725,348 @@ try:
             if len(new_pw) < 6: st.error("Almeno 6 caratteri.")
             else: users_now.loc[users_now["username"] == target, "password"] = hash_password(new_pw); save_csv(users_now, FILES["users"]); st.session_state.flash = f"Password {target} aggiornata."; st.rerun()
 
-    html('<div class="foot">Cristoforo Control Room V8.20</div>')
+    elif page == "CantieriDigitali":
+        if not is_admin():
+            st.error("Accesso riservato alla direzione.")
+            st.stop()
+
+        tab_comm, tab_veh, tab_import = st.tabs(["Mapping Commesse", "Mapping Tipi Veicolo", "Importa Dati"])
+
+        # ---- TAB 1: Mapping commesse ----
+        with tab_comm:
+            st.info(
+                "Associa ogni Codice Commessa di Cantieri Digitali a un Servizio e Sottoservizio della Control Room. "
+                "Le righe senza Servizio assegnato vengono saltate in fase di importazione."
+            )
+            comm_df = read_mapping_commesse()
+            all_svc = [""] + list(SERVICE_TREE.keys())
+            all_sub = [""] + ALL_SUBSERVICES
+            edited_comm = sx(
+                st.data_editor, comm_df, num_rows="dynamic", hide_index=True, key="comm_map_editor",
+                column_config={
+                    "Cod Commessa": st.column_config.TextColumn("Codice Commessa Cantieri Digitali"),
+                    "Servizio": st.column_config.SelectboxColumn("Servizio", options=all_svc),
+                    "Sottoservizio": st.column_config.SelectboxColumn("Sottoservizio", options=all_sub),
+                },
+            )
+            if sx(st.button, "Salva mapping commesse", type="primary", key="save_comm_map"):
+                save_csv(edited_comm.fillna(""), FILES["mapping_commesse"])
+                st.session_state.flash = "Mapping commesse salvato."
+                st.rerun()
+
+        # ---- TAB 2: Mapping tipi veicolo ----
+        with tab_veh:
+            st.info(
+                "Associa ogni Tipo Veicolo esportato da Cantieri Digitali al tipo interno del Tariffario. "
+                "Il Tipo Interno deve corrispondere esattamente alla voce in 'Tariffe e contratti → Costi Mezzi'."
+            )
+            vmap_df = read_mapping_veicoli()
+            tariffs_df = read_tariffs()
+            internal_types = sorted(set(
+                tariffs_df.loc[tariffs_df["Tipo"].str.lower().eq("mezzo"), "Livello_o_Tipo"].astype(str).tolist()
+                + DEFAULT_VEHICLE_TYPES
+            ))
+            edited_vmap = sx(
+                st.data_editor, vmap_df, num_rows="dynamic", hide_index=True, key="vmap_editor",
+                column_config={
+                    "Tipo Cantieri": st.column_config.TextColumn("Tipo Veicolo (Cantieri Digitali)"),
+                    "Tipo Interno": st.column_config.SelectboxColumn("Tipo Interno (Tariffario)", options=[""] + internal_types),
+                },
+            )
+            if sx(st.button, "Salva mapping tipi veicolo", type="primary", key="save_vmap"):
+                save_csv(edited_vmap.fillna(""), FILES["mapping_veicoli"])
+                st.session_state.flash = "Mapping tipi veicolo salvato."
+                st.rerun()
+
+        # ---- TAB 3: Importa dati ----
+        with tab_import:
+            st.markdown(
+                "Carica i due file Excel mensili di Cantieri Digitali. "
+                "Il sistema calcola i costi per ogni commessa e mostra un'anteprima prima del salvataggio."
+            )
+            col_p, col_v = st.columns(2)
+            file_pers = col_p.file_uploader(
+                "📋 Riepilogo Ore Dipendenti", type=["xlsx", "xls"], key="cd_pers_upload",
+                help="File 'Riepilogo_Ore_Dipendenti_…xlsx' da Cantieri Digitali",
+            )
+            file_veic = col_v.file_uploader(
+                "🚛 Riepilogo Ore Veicoli", type=["xlsx", "xls"], key="cd_veic_upload",
+                help="File 'Riepilogo_Ore_Veicoli_…xlsx' da Cantieri Digitali",
+            )
+
+            if not file_pers and not file_veic:
+                st.info("Carica almeno uno dei due file per continuare.")
+            else:
+                mapping_comm = read_mapping_commesse()
+                mapping_veh  = read_mapping_veicoli()
+                tariffs       = read_tariffs()
+                operators_df  = read_operators()
+                default_ccnl  = st.selectbox(
+                    "CCNL predefinito (usato se l'operatore non è in anagrafica)",
+                    list(CONTRACTS.keys()), key="cd_ccnl",
+                )
+
+                # Build operator lookup by matricola / nome cognome
+                op_lk = {}
+                for _, rop in operators_df.iterrows():
+                    for k in (f'{rop["Nome"]} {rop["Cognome"]}', f'{rop["Cognome"]} {rop["Nome"]}', rop["Matricola"]):
+                        k2 = norm_txt(k)
+                        if k2:
+                            op_lk.setdefault(k2, rop)
+
+                results_by_commessa = {}
+
+                def get_slot(commessa):
+                    if commessa not in results_by_commessa:
+                        svc, sub = commessa_to_service(mapping_comm, commessa)
+                        results_by_commessa[commessa] = {
+                            "Servizio": svc, "Sottoservizio": sub,
+                            "Ore Personale": 0.0, "Costo Personale": 0.0,
+                            "Ore Veicoli": 0.0, "Costo Veicoli": 0.0,
+                            "N Personale": 0, "N Veicoli": 0,
+                            "Errori Livello": set(), "Errori Tipo Veicolo": set(),
+                            "_pers_rows": [], "_veic_rows": [],
+                            "Data Da": None, "Data A": None,
+                        }
+                    return results_by_commessa[commessa]
+
+                # ---- Leggi personale ----
+                if file_pers:
+                    try:
+                        _sh_p = pd.ExcelFile(file_pers).sheet_names
+                        _sn_p = "FOGLIO UNO" if "FOGLIO UNO" in _sh_p else _sh_p[0]
+                        df_p  = pd.read_excel(file_pers, sheet_name=_sn_p, dtype=str)
+                        df_p  = df_p[[c for c in df_p.columns if not str(c).startswith("Unnamed")]]
+                        df_p["Durata (h)"]  = pd.to_numeric(df_p.get("Durata (h)",  pd.Series(dtype=str)).str.replace(",", "."), errors="coerce").fillna(0.0)
+                        df_p["Data Inizio"] = pd.to_datetime(df_p.get("Data Inizio", pd.Series(dtype=str)), dayfirst=True, errors="coerce")
+                    except Exception as _ep:
+                        st.error(f"Errore lettura file dipendenti: {_ep}")
+                        df_p = pd.DataFrame()
+
+                    if not df_p.empty and "Cod Commessa" in df_p.columns:
+                        for _, row in df_p.iterrows():
+                            commessa = str(row.get("Cod Commessa", "")).strip()
+                            if not commessa:
+                                continue
+                            ore = float(row.get("Durata (h)", 0) or 0)
+                            if ore <= 0:
+                                continue
+                            slot = get_slot(commessa)
+                            raw_lv    = str(row.get("Livello", "")).strip()
+                            norm_lv   = normalize_level(raw_lv)
+                            matricola = str(row.get("Matricola", "")).strip()
+                            nome_cd   = str(row.get("Dipendente", "")).strip()
+                            found_op  = op_lk.get(norm_txt(matricola)) or op_lk.get(norm_txt(nome_cd))
+                            if found_op is not None:
+                                contratto = str(found_op.get("Contratto", default_ccnl)).strip() or default_ccnl
+                                livello   = str(found_op.get("Livello", norm_lv)).strip() or norm_lv
+                            else:
+                                contratto, livello = default_ccnl, norm_lv
+                            costo_h = labor_rate(tariffs, contratto, livello)
+                            if costo_h == 0:
+                                slot["Errori Livello"].add(f"{raw_lv} → {livello}")
+                            data_raw = row.get("Data Inizio")
+                            try:
+                                data_ts = pd.Timestamp(data_raw) if pd.notna(data_raw) else pd.NaT
+                            except Exception:
+                                data_ts = pd.NaT
+                            slot["Ore Personale"]   += ore
+                            slot["Costo Personale"] += ore * costo_h
+                            slot["N Personale"]     += 1
+                            if not pd.isna(data_ts):
+                                slot["Data Da"] = min(slot["Data Da"], data_ts) if slot["Data Da"] else data_ts
+                                slot["Data A"]  = max(slot["Data A"],  data_ts) if slot["Data A"]  else data_ts
+                            slot["_pers_rows"].append({
+                                "Matricola": matricola, "Operatore": nome_cd,
+                                "Contratto": contratto, "Livello": livello,
+                                "Ore": ore, "Costo Orario": costo_h, "Costo Totale": ore * costo_h,
+                                "Data": data_ts,
+                                "Stato Match": "Trovato" if found_op is not None else ("Livello 0" if costo_h == 0 else "Solo livello"),
+                            })
+
+                # ---- Leggi veicoli ----
+                if file_veic:
+                    try:
+                        _sh_v = pd.ExcelFile(file_veic).sheet_names
+                        _sn_v = "FOGLIO UNO" if "FOGLIO UNO" in _sh_v else _sh_v[0]
+                        df_v  = pd.read_excel(file_veic, sheet_name=_sn_v, dtype=str)
+                        df_v  = df_v[[c for c in df_v.columns if not str(c).startswith("Unnamed")]]
+                        df_v["Durata (h)"]  = pd.to_numeric(df_v.get("Durata (h)",  pd.Series(dtype=str)).str.replace(",", "."), errors="coerce").fillna(0.0)
+                        df_v["Data Inizio"] = pd.to_datetime(df_v.get("Data Inizio", pd.Series(dtype=str)), dayfirst=True, errors="coerce")
+                    except Exception as _ev:
+                        st.error(f"Errore lettura file veicoli: {_ev}")
+                        df_v = pd.DataFrame()
+
+                    if not df_v.empty and "Cod Commessa" in df_v.columns:
+                        for _, row in df_v.iterrows():
+                            commessa = str(row.get("Cod Commessa", "")).strip()
+                            if not commessa:
+                                continue
+                            ore = float(row.get("Durata (h)", 0) or 0)
+                            if ore <= 0:
+                                continue
+                            slot = get_slot(commessa)
+                            tipo_cd  = str(row.get("Tipo Veicolo", "")).strip()
+                            tipo_int = vehicle_type_map(mapping_veh, tipo_cd)
+                            costo_h  = vehicle_rate(tariffs, tipo_int) if tipo_int else 0.0
+                            if costo_h == 0:
+                                slot["Errori Tipo Veicolo"].add(tipo_cd + (f" → {tipo_int}" if tipo_int else " (non mappato)"))
+                            targa     = str(row.get("Targa", "")).strip()
+                            desc_v    = str(row.get("Descrizione Veicolo", "")).strip()
+                            data_raw  = row.get("Data Inizio")
+                            try:
+                                data_ts = pd.Timestamp(data_raw) if pd.notna(data_raw) else pd.NaT
+                            except Exception:
+                                data_ts = pd.NaT
+                            slot["Ore Veicoli"]   += ore
+                            slot["Costo Veicoli"] += ore * costo_h
+                            slot["N Veicoli"]     += 1
+                            if not pd.isna(data_ts):
+                                slot["Data Da"] = min(slot["Data Da"], data_ts) if slot["Data Da"] else data_ts
+                                slot["Data A"]  = max(slot["Data A"],  data_ts) if slot["Data A"]  else data_ts
+                            slot["_veic_rows"].append({
+                                "Targa": targa, "Attrezzatura": desc_v, "Tipo": tipo_int or tipo_cd,
+                                "Ore": ore, "Costo Orario": costo_h, "Costo Totale": ore * costo_h,
+                                "Data": data_ts,
+                                "Stato Match": "Trovato" if costo_h > 0 else "Tariffa 0",
+                            })
+
+                if not results_by_commessa:
+                    st.warning("Nessuna riga valida trovata nei file. Controlla che i file siano quelli corretti.")
+                else:
+                    # ---- Anteprima per commessa ----
+                    section("Anteprima risultati per commessa")
+                    preview_rows = []
+                    for cod, s in sorted(results_by_commessa.items()):
+                        costo_tot = s["Costo Personale"] + s["Costo Veicoli"]
+                        warn_lv   = "; ".join(sorted(s["Errori Livello"]))       if s["Errori Livello"]       else ""
+                        warn_veh  = "; ".join(sorted(s["Errori Tipo Veicolo"])) if s["Errori Tipo Veicolo"] else ""
+                        preview_rows.append({
+                            "Cod Commessa":  cod,
+                            "Servizio":      s["Servizio"]     or "⚠️ Non mappato",
+                            "Sottoservizio": s["Sottoservizio"] or "⚠️ Non mappato",
+                            "Ore Pers.":     round(s["Ore Personale"], 2),
+                            "€ Pers.":       round(s["Costo Personale"], 2),
+                            "Ore Veic.":     round(s["Ore Veicoli"], 2),
+                            "€ Veic.":       round(s["Costo Veicoli"], 2),
+                            "€ Totale":      round(costo_tot, 2),
+                            "Problemi":      (warn_lv + (" | " if warn_lv and warn_veh else "") + warn_veh) or "✅ OK",
+                        })
+                    prev_df = pd.DataFrame(preview_rows)
+                    sx(st.dataframe, prev_df, hide_index=True, use_container_width=True,
+                       column_config={
+                           "€ Pers.":   st.column_config.NumberColumn(format="€ %.2f"),
+                           "€ Veic.":   st.column_config.NumberColumn(format="€ %.2f"),
+                           "€ Totale":  st.column_config.NumberColumn(format="€ %.2f"),
+                       })
+
+                    tot_p   = sum(s["Costo Personale"] for s in results_by_commessa.values())
+                    tot_v   = sum(s["Costo Veicoli"]   for s in results_by_commessa.values())
+                    tot_op  = sum(s["Ore Personale"]   for s in results_by_commessa.values())
+                    tot_ov  = sum(s["Ore Veicoli"]     for s in results_by_commessa.values())
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric("Ore personale",   f"{tot_op:,.1f} h")
+                    c2.metric("Costo personale", f"€ {tot_p:,.2f}")
+                    c3.metric("Ore veicoli",     f"{tot_ov:,.1f} h")
+                    c4.metric("Costo veicoli",   f"€ {tot_v:,.2f}")
+
+                    non_mapp = [cod for cod, s in results_by_commessa.items() if not s["Servizio"]]
+                    if non_mapp:
+                        st.warning(
+                            f"⚠️ {len(non_mapp)} commess{'a' if len(non_mapp)==1 else 'e'} senza Servizio assegnato "
+                            f"({', '.join(non_mapp)}) verranno **saltate**. "
+                            "Assegna il Servizio nel tab 'Mapping Commesse' prima di salvare."
+                        )
+
+                    lvl_zero = [(c, e) for c, s in results_by_commessa.items() for e in s["Errori Livello"]]
+                    veh_zero = [(c, e) for c, s in results_by_commessa.items() for e in s["Errori Tipo Veicolo"]]
+                    if lvl_zero:
+                        with st.expander(f"⚠️ {len(lvl_zero)} livello/i con tariffa = 0 — costo personale nullo per queste righe"):
+                            for cod, e in lvl_zero:
+                                st.write(f"- **{cod}**: `{e}` → aggiorna il Tariffario o l'anagrafica operatori")
+                    if veh_zero:
+                        with st.expander(f"⚠️ {len(veh_zero)} tipo/i veicolo con tariffa = 0 — costo veicoli nullo per queste righe"):
+                            for cod, e in veh_zero:
+                                st.write(f"- **{cod}**: `{e}` → aggiorna il Mapping Tipi Veicolo o il Tariffario")
+
+                    # ---- Deduplicazione e salvataggio ----
+                    section("Salvataggio")
+                    existing_svc = read_services()
+                    already_ids  = set(existing_svc["ID"].astype(str).str.strip()) if not existing_svc.empty else set()
+                    import_id    = "CD-" + datetime.now().strftime("%Y%m%d%H%M%S")
+                    salvabili    = [cod for cod, s in results_by_commessa.items() if s["Servizio"]]
+
+                    if not salvabili:
+                        st.error("Nessuna commessa con Servizio assegnato. Configura il Mapping Commesse.")
+                    else:
+                        new_svc_rows, new_prs_rows, new_vhc_rows = [], [], []
+                        for cod in salvabili:
+                            s   = results_by_commessa[cod]
+                            cid = f"CD-{import_id}-{cod.replace(' ', '_')}"
+                            if cid in already_ids:
+                                continue
+                            svc, sub = s["Servizio"], s["Sottoservizio"]
+                            da  = s["Data Da"] or pd.Timestamp(datetime.now())
+                            a   = s["Data A"]  or pd.Timestamp(datetime.now())
+                            cp  = round(s["Costo Personale"], 4)
+                            cv  = round(s["Costo Veicoli"], 4)
+                            oh_rate = general_rate(tariffs, "Overhead", 0.0)
+                            oh  = round((cp + cv) * oh_rate / 100, 4)
+                            ct  = cp + cv + oh
+                            new_svc_rows.append({
+                                "ID": cid, "Data": a, "Servizio": svc, "Sottoservizio": sub,
+                                "Centro di Costo": centro_costo(svc, sub), "Tonnellate": 0.0, "Ricavi": 0.0,
+                                "Costo Personale": cp, "Costo Mezzi": cv, "Overhead": oh,
+                                "Costo Totale": ct, "Margine": -ct,
+                                "Ore Uomo": round(s["Ore Personale"], 4), "Ore Mezzi": round(s["Ore Veicoli"], 4),
+                                "Note": f"Import CD {import_id} | {cod}",
+                                "Creato Da": st.session_state.nome,
+                                "Periodo Da": da, "Periodo A": a,
+                                "Anomalie": len(s["Errori Livello"]) + len(s["Errori Tipo Veicolo"]),
+                            })
+                            for pr in s["_pers_rows"]:
+                                new_prs_rows.append({
+                                    "ID Consuntivo": cid, "Certificazione ID": import_id,
+                                    "Data": pr["Data"], "Servizio": svc, "Sottoservizio": sub,
+                                    "Matricola": pr["Matricola"], "Operatore": pr["Operatore"],
+                                    "Contratto": pr["Contratto"], "Livello": pr["Livello"],
+                                    "Ore": pr["Ore"], "Costo Orario": pr["Costo Orario"],
+                                    "Costo Totale": pr["Costo Totale"], "Stato Match": pr["Stato Match"],
+                                })
+                            for vr in s["_veic_rows"]:
+                                new_vhc_rows.append({
+                                    "ID Consuntivo": cid, "Certificazione ID": import_id,
+                                    "Data": vr["Data"], "Servizio": svc, "Sottoservizio": sub,
+                                    "Targa": vr["Targa"], "Attrezzatura": vr["Attrezzatura"],
+                                    "Tipo": vr["Tipo"], "Ore": vr["Ore"],
+                                    "Costo Orario": vr["Costo Orario"], "Costo Totale": vr["Costo Totale"],
+                                    "Stato Match": vr["Stato Match"],
+                                })
+
+                        gia_salv = len(salvabili) - len(new_svc_rows)
+                        if gia_salv > 0:
+                            st.info(f"{gia_salv} commess{'a' if gia_salv==1 else 'e'} già presenti nel database verranno saltate.")
+                        if not new_svc_rows:
+                            st.warning("Tutte le commesse di questo import sono già state salvate.")
+                        else:
+                            st.success(
+                                f"Pronto a salvare **{len(new_svc_rows)} commess{'a' if len(new_svc_rows)==1 else 'e'}**: "
+                                f"{len(new_prs_rows)} righe personale, {len(new_vhc_rows)} righe veicoli."
+                            )
+                            st.caption(f"ID importazione: `{import_id}`")
+                            if sx(st.button, f"✅ Salva nel database", type="primary", key="cd_save"):
+                                if new_prs_rows:
+                                    append_rows("personnel",      read_personnel,      pd.DataFrame(new_prs_rows))
+                                if new_vhc_rows:
+                                    append_rows("vehicle_detail", read_vehicle_detail, pd.DataFrame(new_vhc_rows))
+                                append_rows("services", read_services, pd.DataFrame(new_svc_rows))
+                                st.session_state.flash = (
+                                    f"Import CD completato: {len(new_svc_rows)} commesse, "
+                                    f"{len(new_prs_rows)} righe personale, {len(new_vhc_rows)} righe veicoli salvate."
+                                )
+                                st.rerun()
+
+    html('<div class="foot">Cristoforo Control Room V8.21</div>')
 
 except Exception as global_error:
     st.error("ERRORE CRITICO! L'applicazione non riesce a partire.")
